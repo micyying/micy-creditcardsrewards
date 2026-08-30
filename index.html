@@ -1291,10 +1291,29 @@ function stmtMeta(text){
   let bank=null;
   if(/中銀|BOC|CHILL|GO銀聯|港幣帳號|付款存根|簽帳得FUN/.test(U))bank='boc';
   else if(/STANDARD CHARTERED|渣打|CATHAY|國泰/.test(U))bank='sc';
+  else if(/HSBC PULSE|PULSE UNIONPAY|PULSE DUALCURRENCY|HSBC UNIONPAY/.test(U))bank='hsbc';
+  else if(/MOX CREDIT|\bMOX\b|Mox Credit/.test(U))bank='mox';
+  else if(/AEON|WAKUWAKU|AEON VISA/.test(U))bank='aeon';
   let year=new Date().getFullYear(),mon=new Date().getMonth()+1;
-  const bm=/Statement Date[^0-9]{0,45}?(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(U);
-  if(bm&&+bm[1]>0&&+bm[1]<=31&&+bm[2]>0&&+bm[2]<=12){year=+bm[3];mon=+bm[2];}
-  else{const m2=/\b(\d{1,2})-([A-Za-z]{3})-(\d{4})\b/.exec(U);if(m2){const mo=monNum(m2[2]);if(mo){year=+m2[3];mon=mo;}}}
+  if(bank==='boc'||bank==='hsbc'||bank==='mox'||bank==='aeon'){
+    // HSBC / AEON: "Statement Date 17 JUL 2026"
+    if(bank==='hsbc'||bank==='aeon'){
+      const b=/Statement ?Date[\s\S]{0,25}?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i.exec(U);
+      if(b&&monNum(b[2])){year=+b[3];mon=monNum(b[2]);}
+      else{const m=/\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b/i.exec(U);if(m&&monNum(m[2])){year=+m[3];mon=monNum(m[2]);}}
+    }
+    // Mox: statement period "10 Jun 2026 - 9 Jul 2026" -> use period end
+    else if(bank==='mox'){
+      const p=/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*-\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i.exec(U);
+      if(p&&monNum(p[5])){year=+p[6];mon=monNum(p[5]);}
+      else{const m=/\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b/i.exec(U);if(m&&monNum(m[2])){year=+m[3];mon=monNum(m[2]);}}
+    }
+  }
+  else{
+    const bm=/Statement Date[^0-9]{0,45}?(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(U);
+    if(bm&&+bm[1]>0&&+bm[1]<=31&&+bm[2]>0&&+bm[2]<=12){year=+bm[3];mon=+bm[2];}
+    else{const m2=/\b(\d{1,2})-([A-Za-z]{3})-(\d{4})\b/.exec(U);if(m2){const mo=monNum(m2[2]);if(mo){year=+m2[3];mon=mo;}}}
+  }
   return {bank,year,mon};
 }
 function parseBOC(text,year,stmtMon){
@@ -1334,6 +1353,81 @@ function parseSC(text,year,stmtMon){
   return buys.map(b=>{let merchant=b.kind==='payment'?'信用卡還款':'';if(!b.kind&&pi<refs.length)merchant=refs[pi++];
     return Object.assign({},b,{merchant:cleanMerch(merchant),online:guessOnline(merchant),category:guessCategory(merchant)});});
 }
+/* Mox Credit：Activity date(DD Mon) Settlement(DD Mon) 詳情 -金額(HKD)（負=消費、正=還款/回贈）*/
+function parseMOX(text,year,stmtMon){
+  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const DATE=/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{1,2})\s+([A-Za-z]{3})\s+([\s\S]*?)\s*(-?[\d,]+\.\d\d)\s*$/i;
+  const isDate=l=>/^\d{1,2}\s+[A-Za-z]{3}\s+\d{1,2}\s+[A-Za-z]{3}\b/i.test(l);
+  const out=[];
+  for(let i=0;i<lines.length;i++){
+    const s=lines[i]; if(!isDate(s))continue;
+    const mm=DATE.exec(s); if(!mm)continue;
+    const aD=+mm[1],aM=monNum(mm[2]);
+    const trY=(aM>stmtMon?year-1:year);
+    const date=ymd(aD,aM,trY); if(!date)continue;
+    let desc=(mm[5]||'').trim(), amount=num(mm[6]);
+    if(!desc){ /* 交易說明可能被拆到相鄰行 */
+      for(const cand of [lines[i+1],lines[i-1]]){
+        if(!cand||isDate(cand)||!cand.trim())continue;
+        desc=cand.trim(); break;
+      }
+    }
+    desc=cleanMerch(desc);
+    let kind='tx';
+    if(amount>0){ kind=/^YANG|^YING|REPAY|PAYMENT|還款|TOP ?UP|TRANSFER/i.test(desc)?'payment':'rebate'; amount=Math.abs(amount); }
+    else amount=Math.abs(amount);
+    out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind});
+  }
+  return out;
+}
+/* HSBC Pulse 雙幣卡：Post date Trans date 詳情 地區 金額(CR)（CNY 子帳戶行尾為 CHN CN）*/
+function parseHSBC(text,year,stmtMon){
+  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const TXN=/^(\d{1,2})([A-Z]{3})\s+(\d{1,2})([A-Z]{3})\s+(.+?)\s+([\d,]+\.\d\d)(CR)?\s*$/i;
+  const out=[];let cc='';
+  for(const raw of lines){
+    const s=String(raw);
+    const am=/Amount\s*\((HKD|CNY)\)/i.exec(s); if(am){cc=am[1].toUpperCase();continue;}
+    const sub=/\b(RMB|HKD|CNY)\s*Sub-account/i.exec(s); if(sub){cc=sub[1]==='RMB'?'CNY':sub[1].toUpperCase();continue;}
+    const mm=TXN.exec(s); if(!mm)continue;
+    let cur=cc;
+    const pair=/\b(CHN|CHINA)\s+(CN)\b$/.test(mm[5])?'CNY':(/\b(HKG|HONG ?KONG)\s+(HK)\b$/.test(mm[5])?'HKD':null);
+    if(pair)cur=pair;
+    const pd=+mm[1],pm=monNum(mm[2]);
+    const trY=(pm>stmtMon?year-1:year);
+    const date=ymd(pd,pm,trY); if(!date)continue;
+    let desc=String(mm[5]||'').trim();
+    desc=desc.replace(/\s+(HKG|HONG ?KONG)\s+(HK)\s*$/i,'').replace(/\s+(CHN|CHINA)\s+(CN)\s*$/i,'')
+      .replace(/\s+(HKG|HK|CHN|CN|CHINA|HONG ?KONG|SGP|TWN|MO|MOC|JPN|KOR|THA|USA|US)\s*$/gi,'').trim();
+    const amount=num(mm[6]),cr=!!mm[7];
+    let kind=cr?((/REBATE|CASH BACK|回贈|OFFSET|POINTS/i.test(desc))?'rebate':'credit'):'tx';
+    out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind,cur:cur||'HKD'});
+  }
+  return out;
+}
+/* AEON 綜合月結單（多張卡分頁）：Transaction Date Post Date 詳情 地區 支付方式 金額(CR) */
+function parseAEON(text,year,stmtMon){
+  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const TXN=/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(.+?)\s+([\d,]+\.\d\d)\s*(CR)?\s*$/i;
+  const strip=d=>String(d||'').trim()
+    .replace(/\s+(APPLE ?PAY|G ?PAY|GPay|AP|GP)\s*$/i,'')
+    .replace(/\s+(HONG ?KONG|HONGKONG|HONG)\s+(HKG|HK)\s*$/i,'')
+    .replace(/\s+(CHINA|CHN|CN)\s+(CN)\s*$/i,'')
+    .replace(/\s+(HKG|HK|CHN|CN|HONG ?KONG|HONGKONG|HONG)\s*$/i,'')
+    .replace(/\s{2,}/g,' ').trim();
+  const out=[];
+  for(const raw of lines){
+    const s=String(raw);
+    const m=TXN.exec(s); if(!m)continue;
+    const date=ymd(+m[1],monNum(m[2]),+m[3]); if(!date)continue;
+    let desc=strip(m[7]); const amount=num(m[8]),cr=!!m[9];
+    let kind='tx';
+    if(cr){ if(/DIRECT DEBIT|PAYMT|還款|REPAY/i.test(desc))kind='payment';
+      else if(/REDEMPTION|REBATE|退款|REFUND|OFFSET|回贈/i.test(desc))kind='rebate'; else kind='credit'; }
+    out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind});
+  }
+  return out;
+}
 function guessCard(text){
   const cards=S.data&&S.data.cards?S.data.cards:[],U=String(text||'').toUpperCase(),tags=[];
   if(/CHILL|CHILL WORLD/i.test(U))tags.push('CHILL');
@@ -1341,12 +1435,19 @@ function guessCard(text){
   if(/CATHAY|國泰/i.test(U))tags.push('CATHAY','國泰');
   if(/渣打|STANDARD CHARTERED/i.test(U))tags.push('渣打','BANK');
   if(/HSBC|滙豐|RED|RC/i.test(U))tags.push('RED','HSBC');
+  if(/MOX|\bMOX\b|Mox Credit/i.test(U))tags.push('MOX');
+  if(/AEON|WAKUWAKU/i.test(U))tags.push('AEON');
   for(const t of tags){const c=cards.find(c=>c.name.toUpperCase().indexOf(t)>=0);if(c)return c.id;}
   return null;
 }
 function buildRows(text){
   const det=stmtMeta(text);if(!det.bank)return [];
-  let rows=det.bank==='boc'?parseBOC(text,det.year,det.mon):parseSC(text,det.year,det.mon);
+  let rows=det.bank==='boc'?parseBOC(text,det.year,det.mon)
+    :det.bank==='sc'?parseSC(text,det.year,det.mon)
+    :det.bank==='mox'?parseMOX(text,det.year,det.mon)
+    :det.bank==='hsbc'?parseHSBC(text,det.year,det.mon)
+    :det.bank==='aeon'?parseAEON(text,det.year,det.mon)
+    :[];
   const gid=guessCard(text)||null,def=(S.data.cards[0]||{}).id||null;
   rows.forEach(r=>{if(!r.cardId)r.cardId=gid||IMPPDF.cardId||def;if(!r.merchant&&r.kind!=='tx')r.merchant=(r.kind==='payment'?'信用卡還款':'退款');});
   return rows;
@@ -1362,10 +1463,20 @@ async function pdfsToTexts(files){
     const arr=await f.arrayBuffer();
     const pdf=await pdfjsLib.getDocument({data:arr}).promise;
     let t='';
-    for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const c=await pg.getTextContent();t+=c.items.map(it=>it.str).join('\n');}
+    for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const c=await pg.getTextContent();t+='\n'+pageText(c.items);}
     out.push(t);
   }
   return out;
+}
+/* 依座標重建可讀文字（Mox/HSBC 交易列需行級重排） */
+function pageText(items){
+  const toks=[];
+  for(const it of items){if(!it.str)continue;const t=it.transform||[1,0,0,1,0,0];const fs=Math.max(4,Math.min(30,it.height||Math.abs(t[3])||8));toks.push({x:t[4],y:t[5],fs,str:it.str,w:it.width||(it.str.length*fs*0.5)});}
+  toks.sort((a,b)=>a.y-b.y);const lines=[];
+  for(const tk of toks){const tol=Math.max(2,Math.min(3.5,tk.fs*0.4));let L=null;for(const l of lines){if(Math.abs(l.y-tk.y)<=tol){L=l;break;}}if(L){L.toks.push(tk);L.y=(L.y+tk.y)/2;}else lines.push({y:tk.y,toks:[tk]});}
+  lines.sort((a,b)=>a.y-b.y);const out=[];
+  for(const l of lines){l.toks.sort((a,b)=>a.x-b.x);let pe=null;const p=[];for(const w of l.toks){if(pe!=null&&(w.x-pe)>Math.max(1.2,w.fs*0.25))p.push(' ');p.push(w.str);pe=Math.max(pe||0,w.x+w.w);}out.push(p.join('').replace(/[ \t]+/g,' ').trim());}
+  return out.filter(Boolean).join('\n');
 }
 async function aiChat(prompt){
   const c=getAiCfg();
