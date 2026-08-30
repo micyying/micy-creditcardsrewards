@@ -460,22 +460,31 @@ const REAL_CARDS=[
   note:'請填入 Pulse 卡的實際回贈條款',face:'cardimgs/hsbc_pulse.png'}
 ];
 const FACE_REV=4; /* 卡面版本：改版後強制更新已儲存卡片的真实卡面 */
+const RULES_REV=1; /* 規則版本：碌邊張(swipewhich)同步後強制更新回贈規則（手動改過的卡除外） */
 function ensureRealCards(){
   if(!S.data||!S.data.cards)return;
   const REMOVE=['card-sc-smart','card-citi-cb']; /* 舊示例卡（非你名下）移除 */
   const needFace=!S.data.faceRev||S.data.faceRev<FACE_REV;
+  const needRules=!S.data.rulesRev||S.data.rulesRev<RULES_REV;
   let changed=false;
   for(const c of REAL_CARDS){
     const ex=S.data.cards.find(x=>x.id===c.id);
     if(ex){
       if(ex.demo){ex.demo=false;changed=true;}                  /* 舊示例卡升級為真實卡 */
       if(needFace||!ex.face){ex.face=c.face;changed=true;}      /* 換上真實卡面 */
+      if(needRules&&!ex.rulesCustom){                           /* 碌邊張同步的規則覆寫（手動改過除外） */
+        ex.rules=JSON.parse(JSON.stringify(c.rules||[]));
+        if(c.note)ex.note=c.note;
+        if(typeof c.baseRate==='number')ex.baseRate=c.baseRate;
+        changed=true;
+      }
     }else{S.data.cards.push(JSON.parse(JSON.stringify(c)));changed=true;}
   }
   const n=S.data.cards.length;
   S.data.cards=S.data.cards.filter(x=>REMOVE.indexOf(x.id)<0);
   if(S.data.cards.length!==n)changed=true;
   if(needFace){S.data.faceRev=FACE_REV;changed=true;}
+  if(needRules){S.data.rulesRev=RULES_REV;}
   if(changed)saveLocal();
 }
 
@@ -1823,17 +1832,18 @@ const ACTIONS={
         online:$('r-onl').value===''?null:$('r-onl').value==='1',
         start:$('r-start').value||null,end:$('r-end').value||null,
         priority:num($('r-prio').value)||10};
+      card.rulesCustom=true; /* 手動改過，之後碌邊張同步不覆蓋 */
       if(ruleId){const r=(card.rules||[]).find(r=>r.id===ruleId);if(r)Object.assign(r,obj);}
       else{card.rules=card.rules||[];card.rules.push({id:'r-'+uid(),...obj});}
     });
-    toast('規則已儲存','ok');
+    toast('規則已儲存（此卡已標記為手動修改，同步不覆蓋）','ok');
     openSheet(cardSheet(cardId));
   },
   'rule-del':d=>{
     const[cardId,ruleId]=d.id.split('|');
     confirmSheet('刪除規則','確定刪除此回贈規則？','刪除',()=>{
       mutate(dd=>{const card=dd.cards.find(c=>c.id===cardId);
-        if(card)card.rules=(card.rules||[]).filter(r=>r.id!==ruleId);});
+        if(card){card.rules=(card.rules||[]).filter(r=>r.id!==ruleId);card.rulesCustom=true;}});
       toast('已刪除','ok');openSheet(cardSheet(cardId));
     });
   },
