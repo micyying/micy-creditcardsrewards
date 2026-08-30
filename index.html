@@ -1747,26 +1747,63 @@ function parseHSBC(text,year,stmtMon){
   }
   return out;
 }
-/* AEON 綜合月結單（多張卡分頁）：Transaction Date Post Date 詳情 地區 支付方式 金額(CR) */
+/* AEON 綜合月結單（多張卡分頁）：Transaction Date Post Date 詳情 地區 支付方式 金額(CR)
+   每個「YOUR CARD ACTIVITIES」分頁以卡名標題行（如「AEON Visa Credit Card(P)」「AEON CARD WAKUWAKU(P)」）開首，
+   依標題行把該頁交易對應到正確的 AEON 卡，無需人手逐筆改卡 */
 function parseAEON(text,year,stmtMon){
   const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const TXN=/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(.+?)\s+([\d,]+\.\d\d)\s*(CR)?\s*$/i;
+  /* Taobao 等交易商家印在上一行、金額行只有「日期 日期 金額」 */
+  const DATED=/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+([\d,]+\.\d\d)\s*(CR)?\s*$/i;
   const strip=d=>String(d||'').trim()
     .replace(/\s+(APPLE ?PAY|G ?PAY|GPay|AP|GP)\s*$/i,'')
     .replace(/\s+(HONG ?KONG|HONGKONG|HONG)\s+(HKG|HK)\s*$/i,'')
     .replace(/\s+(CHINA|CHN|CN)\s+(CN)\s*$/i,'')
     .replace(/\s+(HKG|HK|CHN|CN|HONG ?KONG|HONGKONG|HONG)\s*$/i,'')
     .replace(/\s{2,}/g,' ').trim();
-  const out=[];
-  for(const raw of lines){
-    const s=String(raw);
-    const m=TXN.exec(s); if(!m)continue;
+  /* 分頁卡標題 → 對應卡 id（WAKUWAKU、Purple(Visa (P))、其他 AEON 卡） */
+  const aeonCards=()=>S.data.cards.filter(c=>/AEON/i.test(c.bank||''));
+  const aeonCardOf=header=>{
+    const cards=aeonCards();if(!cards.length)return null;
+    const H=String(header||'').toUpperCase();
+    const by=re=>cards.find(c=>re.test(c.name.toUpperCase()));
+    if(/WAKUWAKU/.test(H))return (by(/WAKU/)||cards[0]).id;
+    if(/PURPLE|VISA CREDIT CARD/.test(H))return (by(/PURPLE/)||by(/VISA/)||cards[0]).id;
+    const c0=by(/AEON/);if(c0)return c0.id;
+    return cards[0].id;
+  };
+  /* 金額行缺商家時，向上找該行商家（跳過餘額/匯率/備註等非商家的行） */
+  const prevDesc=i=>{
+    for(let k=i-1;k>=0;k--){
+      const p=String(lines[k]||'').trim();if(!p)continue;
+      if(DATED.test(p)||TXN.test(p))break;
+      if(/^(YOUR CARD ACTIVITIES|CARD ACTIVITIES)$/i.test(p))break;
+      if(/^AEON\b/i.test(p)&&/CARD|VISA|CREDIT|WAKU/i.test(p))break;
+      if(/PREVIOUS BALANCE|STATEMENT BALANCE|MINIMUM PAYMENT|CREDIT CARD LIMIT|NOTE|備註|REMARK|FINANCE CHARGE|購物簽賬|現金預支|OPENING BALANCE|CLOSING BALANCE/i.test(p))break;
+      if(/\(rate[^)]*\)$|^[A-Z]{3}\s*[\d,.]+$|^[\d,.]+$/i.test(p))continue;
+      return strip(p);
+    }
+    return '';
+  };
+  const out=[];let cur=null;
+  for(let i=0;i<lines.length;i++){
+    const s=String(lines[i]);
+    if(/^(YOUR CARD ACTIVITIES|CARD ACTIVITIES)/i.test(s))continue;
+    if(/^AEON\b/i.test(s)&&/CARD|VISA|CREDIT|WAKU/i.test(s)){const cid=aeonCardOf(s);if(cid)cur=cid;continue;} /* 分頁卡標題 */
+    const m=TXN.exec(s)||DATED.exec(s); if(!m)continue;
     const date=ymd(+m[1],monNum(m[2]),+m[3]); if(!date)continue;
-    let desc=strip(m[7]); const amount=num(m[8]),cr=!!m[9];
+    let desc='',amount=0,cr=false;
+    if(DATED.test(s)){            /* 金額行缺商家：商家在上一行（Taobao 多列交易） */
+      const d=DATED.exec(s);
+      amount=num(d[7]); cr=!!d[8]; desc=prevDesc(i);
+    }else{                        /* 一般單列交易：商家在同列 */
+      const t=TXN.exec(s);
+      desc=strip(t[7]); amount=num(t[8]); cr=!!t[9];
+    }
     let kind='tx';
     if(cr){ kind=incType(desc); if(kind==='credit'&&/REFUND|退款|退貨|OFFSET/i.test(desc))kind='credit'; else if(kind==='credit')kind='payment'; }
     /* AEON 收款：還款優先、退款→credit、回贈→rebate、其他收款視為還款 */
-    out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind});
+    out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind,cardId:cur||undefined});
   }
   return out;
 }
@@ -2240,6 +2277,7 @@ const ACTIONS={
   'pdft-upd':(d,t)=>{const r=IMPPDF.rows[+d.i];if(!r)return;const f=d.f,v=t.value;
     if(f==='amount')r.amount=num(v);
     else if(f==='online')r.online=v===''?null:v==='1';
+    else if(f==='card'){r.cardId=v;}   /* 修正：卡片下拉欄位對應 row.cardId，否則改了不生效 */
     else r[f]=v;},
   'pdft-ai':async(d,t)=>{const btn=$('pdft-ai-btn')||t;if(IMPPDF.aiBusy)return;IMPPDF.aiBusy=true;if(btn){btn.disabled=true;btn.textContent='AI 標記中…';}
     try{
