@@ -194,6 +194,14 @@ input[type=date]{padding:9px 10px}
 .s-sub{font-size:12.5px;color:var(--muted);margin:0 0 12px}
 .s-actions{display:flex;gap:10px;margin-top:16px}
 .s-actions .btn{flex:1}
+/* 確認月結單列表：右下角「拉到底」浮動把手 */
+.sheet-float{position:fixed;left:50%;bottom:calc(30px + env(safe-area-inset-bottom));transform:translateX(-50%);
+  z-index:6;display:flex;align-items:center;gap:6px;background:rgba(108,92,231,.95);color:#fff;
+  border:none;border-radius:999px;padding:9px 16px;font-size:13px;font-weight:800;box-shadow:0 6px 20px rgba(15,10,60,.35);
+  cursor:pointer;-webkit-tap-highlight-color:transparent}
+.sheet-float svg{width:15px;height:15px;flex:none}
+.sheet-float:hover{background:#5A4BD6}
+.user-nm{font-size:14.5px;font-weight:800;color:#18132E;line-height:1.35;overflow-wrap:anywhere;word-break:break-word;white-space:normal}
 
 /* ---- 卡片設置（iOS 群組樣式） ---- */
 .cset{background:#F2F2F7;margin:-18px -18px 0;padding:18px 16px 8px}
@@ -1790,11 +1798,13 @@ function pdfReviewRows(rows){
     if(card)meta.push(esc(card.name));
     if(r.online===true)meta.push('網上');else if(r.online===false)meta.push('門市');
     const amtGood=(r.kind==='rebate'||r.kind==='credit');
-    return `<div class="row" style="align-items:center">
-    <div class="row-ico" style="background:${kd.bg};color:#fff;border-radius:8px;font-size:13px;font-weight:700;line-height:30px">${kd.n.slice(0,1)}</div>
-    <div class="row-main"><div class="row-t1" style="white-space:normal;overflow:visible;text-overflow:clip;word-break:break-all;line-height:1.35" title="${esc(r.merchant||'')}">${esc(r.merchant||'(空白)')}</div><div class="row-t2">${meta.join(' · ')}</div></div>
-    <div class="row-amt ${amtGood?'amt-good':''}">${fmtHKD(num(r.amount))}<small>${kd.n}</small></div>
-    <button class="btn btn-sm btn-ghost" style="flex:none;margin-left:8px;white-space:nowrap" data-action="pdft-edit" data-i="${i}">修改</button></div>`;
+    return `<div class="row" style="flex-direction:column;align-items:stretch">
+    <div style="display:flex;align-items:flex-start;gap:10px">
+    <div class="row-ico" style="flex:none;background:${kd.bg};color:#fff;border-radius:8px;font-size:13px;font-weight:700;line-height:30px">${kd.n.slice(0,1)}</div>
+    <div style="flex:1;min-width:0"><div class="user-nm" title="${esc(r.merchant||'')}">${esc(r.merchant||'(空白)')}</div><div class="row-t2" style="margin-top:2px">${meta.join(' · ')}</div></div></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px">
+    <div class="${amtGood?'amt-good':''}" style="font-weight:800">${fmtHKD(num(r.amount))}<small style="font-weight:600;color:var(--muted);margin-left:6px">${kd.n}</small></div>
+    <button class="btn btn-sm btn-ghost" style="flex:none;white-space:nowrap" data-action="pdft-edit" data-i="${i}">修改</button></div></div>`;
   }).join('');
 }
 function pdfImportSheet(step){
@@ -1816,6 +1826,8 @@ function pdfImportSheet(step){
   <p class="s-sub">共 ${IMPPDF.rows.length} 筆 · ${counts||'—'}。已自動分類，<b>有問題再逐筆點「修改」編輯</b>（日期／金額／商家／分類／卡片／網上）；你在這裡改的分類會被記住，下次同名商家自動沿用。回贈／還款／退款不進入「刷哪張」推薦。</p>
   ${aiConfigured()?`<div style="margin:6px 0"><button class="btn btn-primary btn-block" data-action="pdft-ai">✨ AI 標記全部消費</button></div>`:''}
   ${pdfReviewRows(IMPPDF.rows)}
+  <button class="sheet-float" data-action="pdft-bottom" title="拉到最下面確認">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.5l7 6.5-7 6.5"/></svg>拉到底</button>
   <div class="s-actions">
   <button class="btn btn-ghost" data-action="pdft-back">重新選檔案</button>
   <button class="btn btn-primary" data-action="pdft-save">確認並匯入 ${IMPPDF.rows.length} 筆</button></div>`;
@@ -2153,6 +2165,7 @@ const ACTIONS={
     IMPPDF.rows=rows;openSheet(pdfImportSheet(2));toast('擷取到 '+rows.length+' 筆待確認','ok');
   },
   'pdft-back':()=>openSheet(pdfImportSheet(1)),
+  'pdft-bottom':()=>{const sh=$('sheet');if(sh){sh.scrollTo({top:sh.scrollHeight,behavior:'smooth'});}},
   'pdft-edit':(d)=>{const o=(IMPPDF.openEdits=IMPPDF.openEdits||{});const i=+d.i;if(o[i])delete o[i];else o[i]=true;openSheet(pdfImportSheet(2));},
   'pdft-upd':(d,t)=>{const r=IMPPDF.rows[+d.i];if(!r)return;const f=d.f,v=t.value;
     if(f==='amount')r.amount=num(v);
