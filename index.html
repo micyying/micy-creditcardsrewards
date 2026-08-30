@@ -56,6 +56,22 @@ input[type=date]{padding:9px 10px}
 .divider{height:1px;background:var(--line);margin:12px 0}
 .mini{font-size:12px;color:var(--muted)}
 
+/* 卡片表現：每張卡整齊排版 */
+.perf-card{border:1.5px solid var(--line);border-radius:14px;overflow:hidden;margin:8px 0 2px;background:#fff;box-shadow:0 1px 3px rgba(15,10,60,.04)}
+.perf-head{display:flex;align-items:center;gap:8px;padding:11px 13px}
+.perf-dot{width:13px;height:13px;border-radius:4px;flex:none}
+.perf-name{flex:1;min-width:0;font-weight:800;font-size:14px;color:#18132E;line-height:1.3;overflow-wrap:anywhere;word-break:break-word;white-space:normal}
+.perf-diff{flex:none;font-weight:800;font-size:13px}
+.perf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line)}
+.perf-cell{background:#FBFBFE;padding:8px 13px}
+.perf-k{font-size:11px;color:var(--muted);margin-bottom:2px}
+.perf-v{font-size:14px;font-weight:800;color:#18132E}
+.perf-foot{display:flex;justify-content:space-between;gap:10px;align-items:flex-end;padding:10px 13px;flex-wrap:wrap}
+.perf-foot .pf{font-size:12.5px;line-height:1.35}
+.perf-foot b{font-size:14px}
+.perf-src{padding:0 13px 11px;font-size:11.5px;color:var(--muted);line-height:1.4}
+.good{color:var(--ok,#0E9663)}.bad{color:var(--bad,#D64545)}
+
 /* buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:13px;
   padding:11px 16px;font-weight:700;font-size:15px;transition:transform .06s,opacity .15s}
@@ -1321,16 +1337,25 @@ function analysisHTML(){
   const perf=[...byCard.entries()].map(([id,c])=>({card:cardById(id),...c,cred:credibilityFor(id)})).sort((a,b)=>b.spend-a.spend);
   const perfRows=perf.map(p=>{
     const calExp=p.cred&&p.cred.factor>0?p.exp*p.cred.factor:p.exp;
-    const diff=p.act-calExp;
+    const diff=r2(p.act-calExp);
+    const isGood=diff>=0;
     const src=actualOfMonth(p.card?p.card.id:'_',m);
-    const srcTxt=[src.cr>0?'月結單CR '+fmtHKD(src.cr):'',src.rm>0?'手動 '+fmtHKD(src.rm):'',src.tx>0?'逐筆 '+fmtHKD(src.tx):''].filter(Boolean).join('＋')||'無實際數據';
-    return `<div class="row" style="margin:8px 0 2px;box-shadow:none;border:1.5px solid var(--line)">
-    <div class="row-ico"><span style="display:inline-block;width:13px;height:13px;border-radius:4px;background:${p.card?p.card.color||'#6C5CE7':'#999'};margin-top:9px"></span></div>
-    <div class="row-main"><div class="row-t1" style="font-size:14px">${esc(p.card?p.card.name:'已刪卡片')}</div>
-    <div class="row-t2">消費 ${fmtHKD(p.spend)} · 理論 ${fmtHKD(p.exp)} · 校準 ${p.cred&&p.cred.factor>0?'×'+p.cred.pct+'%':'—'}</div>
-    <div class="row-t2">實際來源：${srcTxt}${p.cred&&p.cred.n?'（'+p.cred.n+' 個月數據）':''}</div></div>
-    <div class="row-amt"><span class="amt-dim" style="font-size:12px">校準 ${fmtHKD(calExp)}</span>
-    <small class="${diff>=0?'amt-good':'amt-bad'}">實際 ${fmtHKD(p.act)}（${diff>=0?'+':'−'}${fmtHKD(Math.abs(diff))}）</small></div></div>`;
+    const srcTxt=[src.cr>0?'月結單CR '+fmtHKD(src.cr):'',src.rm>0?'手動月結 '+fmtHKD(src.rm):'',src.tx>0?'逐筆 '+fmtHKD(src.tx):''].filter(Boolean).join('＋')||'暫無實際數據';
+    const calPct=p.cred&&p.cred.factor>0?('×'+p.cred.pct+'%'):'—';
+    const nTxt=p.cred&&p.cred.n?('（'+p.cred.n+' 個月）'):'（尚無歷史）';
+    return `<div class="perf-card">
+    <div class="perf-head">
+    <span class="perf-dot" style="background:${p.card?p.card.color||'#6C5CE7':'#999'}"></span>
+    <span class="perf-name">${esc(p.card?p.card.name:'已刪卡片')}</span>
+    <span class="perf-diff ${isGood?'good':'bad'}">${isGood?'+':''}${fmtHKD(diff)}</span></div>
+    <div class="perf-grid">
+    <div class="perf-cell"><div class="perf-k">消費</div><div class="perf-v">${fmtHKD(p.spend)}</div></div>
+    <div class="perf-cell"><div class="perf-k">理論回贈</div><div class="perf-v">${fmtHKD(p.exp)}</div></div>
+    <div class="perf-cell"><div class="perf-k">校準係數</div><div class="perf-v">${calPct}</div></div></div>
+    <div class="perf-foot">
+    <span class="pf">校準 <b>${fmtHKD(calExp)}</b></span>
+    <span class="pf">實際 <b class="${isGood?'good':'bad'}">${fmtHKD(p.act)}</b></span></div>
+    <div class="perf-src">差異 ${isGood?'+':'−'}${fmtHKD(Math.abs(diff))} · 來源 ${srcTxt} ${nTxt}</div></div>`;
   }).join('');
   const byCat={};
   for(const t of txs)byCat[t.category]=(byCat[t.category]||0)+t.amount;
