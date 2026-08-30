@@ -232,6 +232,7 @@ input[type=date]{padding:9px 10px}
 <body>
 <div id="app"></div>
 <div id="sheet-wrap" hidden><div class="sheet-bg" data-action="sheet-close"></div><div id="sheet" class="sheet"></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <div id="toasts"></div>
 <script>
 'use strict';
@@ -355,7 +356,7 @@ function freshData(){
   return {app:'micy-shuana',v:1,meta:{rev:0,savedAt:0},
     settings:{ready:false},
     cards:[],categories:JSON.parse(JSON.stringify(SEED_CATEGORIES)),
-    transactions:[],rewardMonths:[]};
+    transactions:[],rewardMonths:[],credits:[],knowledge:[]};
 }
 function load(){
   try{
@@ -368,6 +369,8 @@ function load(){
   if(!S.data.categories||!S.data.categories.length)S.data.categories=JSON.parse(JSON.stringify(SEED_CATEGORIES));
   if(!S.data.transactions)S.data.transactions=[];
   if(!S.data.rewardMonths)S.data.rewardMonths=[];
+  if(!S.data.credits)S.data.credits=[];
+  if(!S.data.knowledge)S.data.knowledge=[];
 }
 function saveLocal(){try{localStorage.setItem(LS_DATA,JSON.stringify(S.data));}catch(e){toast('本機儲存失敗：資料可能過大','err');}}
 function mutate(fn){
@@ -455,6 +458,8 @@ function credibilityFor(cardId){
   return {pct:Math.round(100*s/w),n:pairs.length};
 }
 function guessCategory(desc){
+  const l=learnedLabel(desc);
+  if(l&&l.category)return l.category;
   const d=String(desc||'').toUpperCase();
   if(!d)return 'other';
   for(const c of S.data.categories){
@@ -465,6 +470,8 @@ function guessCategory(desc){
   return 'other';
 }
 function guessOnline(desc){
+  const l=learnedLabel(desc);
+  if(l&&l.online!=null)return !!l.online;
   const d=String(desc||'').toUpperCase();
   return /ONLINE|ECOM|E-COM|APPLE\.COM|AMAZON|GOOGLE|APP STORE|ITUNES|STRIPE|SHOPIFY|TAOBAO|TMALL|TRIP\.COM|AGODA|BOOKING\.COM|KLOOK|HKTV/.test(d);
 }
@@ -986,7 +993,10 @@ function recordsHTML(){
   ${rows||'<div class="empty">本月未有記錄<br>可匯入銀行語句（CSV）或手動新增</div>'}
   <section class="panel" style="display:flex;gap:10px">
   <button class="btn btn-primary" style="flex:1" data-action="tx-add">新增消費</button>
-  <button class="btn btn-ghost" style="flex:1" data-action="import-open">匯入語句（CSV）</button></section>`;
+  <button class="btn btn-ghost" style="flex:1" data-action="import-open">匯入語句（CSV）</button></section>
+  <section class="panel" style="display:flex;gap:10px">
+  <button class="btn btn-primary" style="flex:1" data-action="pdft-open">匯入月結單 PDF</button>
+  <button class="btn btn-ghost" style="flex:1" data-action="cred-open">回贈／還款</button></section>`;
 }
 function txSheet(txId,pref){
   const tx=txId?S.data.transactions.find(t=>t.id===txId):null;
@@ -1105,6 +1115,9 @@ function settingsHTML(){
   <button class="btn btn-sm btn-ghost" data-action="cat-edit" data-id="${c.id}">編輯</button></div>`).join('');
   const bakRows=baks.map((b,i)=>`<div class="kv"><span class="kk">${new Date(b.ts).toLocaleString('zh-HK')}<br>
   <span class="mini">${esc(b.reason||'')}</span></span><button class="btn btn-sm btn-ghost" data-action="bak-restore" data-id="${i}">還原</button></div>`).join('');
+  const know=(S.data.knowledge||[]).slice(-20).reverse().map(k=>`<div class="kv"><span class="kk"><b>${esc(k.pattern)}</b> → ${catById(k.category).emoji} ${esc(catById(k.category).name||'其他')}</span>
+  <button class="btn btn-sm btn-ghost" data-action="know-del" data-id="${k.id}">刪除</button></div>`).join('');
+  const aiCfg=getAiCfg();
   return `
   <section class="panel"><h2 class="p-title">雲端同步</h2>${syncPanel}</section>
   <section class="panel"><h2 class="p-title">備份</h2>
@@ -1121,6 +1134,13 @@ function settingsHTML(){
   <button class="btn btn-ghost" style="flex:1" data-action="demo-load">載入示例資料</button>
   <button class="btn btn-ghost" style="flex:1" data-action="demo-remove">移除示例資料</button></div>
   <button class="btn btn-danger btn-block" style="margin-top:10px" data-action="data-clear">清空所有資料</button></section>
+  <section class="panel"><h2 class="p-title">AI 智能標記</h2><p class="p-sub">用大模型把月結單消費自動分類，並記住你的更正（接受 OpenAI 相容介面：GPT／DeepSeek／通義／豆包等）</p>
+  <div class="kv"><span class="kk">狀態</span><span class="vv">${aiConfigured()?esc(aiCfg.model):'未設定'}</span></div>
+  <button class="btn btn-ghost btn-block" style="margin-top:8px" data-action="ai-open">${aiConfigured()?'修改 AI 設定':'設定 AI'}</button></section>
+  <section class="panel"><h2 class="p-title">學習記憶（自動分類）</h2>
+  <p class="p-sub">匯入月結單時你在「確認頁」改/確認的分類會被記住，之後同名商家自動沿用（即使不開 AI）。</p>
+  ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
+  ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</section>
   <section class="panel"><h2 class="p-title">關於</h2>
   <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v1.0 · 單人個人使用</span></div>
   <p class="mini" style="margin-top:8px">內建卡片回贈規則為示例資料，並非銀行官方條款，請自行核實及更新；計算結果僅供個人參考。</p></section>`;
@@ -1231,6 +1251,192 @@ function loadDemo(){
     d.rewardMonths.push({id:uid(),cardId:'card-boc-go',month:prev,amount:55.4,demo:true,note:'月結單回贈'});
   });
   toast('已載入示例資料（可隨時移除）','ok');
+}
+
+/* ============ 月結單 PDF 匯入 + AI 標記 ============ */
+const LS_AI='micy_shuana_ai_v1';
+const AI_DEF={on:false,base:'https://api.openai.com/v1',key:'',model:'gpt-4o-mini'};
+const IMPPDF={rows:[],cardId:null,aiBusy:false};
+const KINDS={tx:{n:'消費',bg:'#6C5CE7'},rebate:{n:'回贈',bg:'#0E9663'},payment:{n:'還款',bg:'#D64545'},credit:{n:'退款',bg:'#B3730E'}};
+const MONA=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const monNum=s=>{const i=MONA.indexOf(String(s||'').toUpperCase().slice(0,3));return i<0?null:i+1;};
+const ymd=(d,m,y)=>{if(!d||m==null||!y)return null;const dt=new Date(y,m-1,d);if(dt.getDate()!==d||dt.getMonth()!==m-1)return null;return y+'-'+pad2(m)+'-'+pad2(d);};
+function getAiCfg(){try{const c=JSON.parse(localStorage.getItem(LS_AI)||'null');return c&&c.key?Object.assign({},AI_DEF,c):Object.assign({},AI_DEF);}catch(e){return Object.assign({},AI_DEF);}}
+function saveAiCfg(c){try{localStorage.setItem(LS_AI,JSON.stringify(c));}catch(e){}}
+function aiConfigured(){return !!getAiCfg().key;}
+function normMerchant(s){return String(s||'').replace(/\s+/g,' ').toUpperCase().trim();}
+function learnedLabel(m){
+  const M=normMerchant(m);if(!M)return null;
+  const k=S.data&&S.data.knowledge?S.data.knowledge:[];
+  let best=null;
+  for(const r of k){const p=normMerchant(r.pattern);if(p&&M.indexOf(p)>=0&&(!best||p.length>normMerchant(best.pattern).length))best=r;}
+  return best?{category:best.category,online:best.online}:null;
+}
+function rememberLabel(data,pattern,category,online,src){
+  const P=normMerchant(pattern);if(!P||!category)return;
+  data.knowledge=data.knowledge||[];
+  let hit=null;for(const r of data.knowledge){if(normMerchant(r.pattern)===P){hit=r;break;}}
+  if(hit){hit.category=category;hit.online=!!online;hit.ts=Date.now();hit.src=src||'manual';}
+  else{data.knowledge.push({id:'k-'+uid(),pattern:P,category,online:!!online,ts:Date.now(),src:src||'manual'});}
+  while(data.knowledge.length>400)data.knowledge.shift();
+}
+function cleanMerch(d){
+  let s=String(d||'').replace(/\s{2,}/g,' ').trim();
+  s=s.replace(/\s+\b(HONG KONG|HKG|HK|CHINA|CHN|CNY|JAPAN|JPN|JAP|IRELAND|IRL|U\.?S\.?A\.?|USA|TAIWAN|TWN|SINGAPORE|SGP|KOREA|KOR|MACAO|MOC|THAILAND|THA|CORK|SHANGHAI)\b\s*$/i,'');
+  s=s.replace(/\s{2,}/g,' ').trim();
+  return s;
+}
+function stmtMeta(text){
+  const U=String(text||'').toUpperCase();
+  let bank=null;
+  if(/中銀|BOC|CHILL|GO銀聯|港幣帳號|付款存根|簽帳得FUN/.test(U))bank='boc';
+  else if(/STANDARD CHARTERED|渣打|CATHAY|國泰/.test(U))bank='sc';
+  let year=new Date().getFullYear(),mon=new Date().getMonth()+1;
+  const bm=/Statement Date[^0-9]{0,45}?(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(U);
+  if(bm&&+bm[1]>0&&+bm[1]<=31&&+bm[2]>0&&+bm[2]<=12){year=+bm[3];mon=+bm[2];}
+  else{const m2=/\b(\d{1,2})-([A-Za-z]{3})-(\d{4})\b/.exec(U);if(m2){const mo=monNum(m2[2]);if(mo){year=+m2[3];mon=mo;}}}
+  return {bank,year,mon};
+}
+function parseBOC(text,year,stmtMon){
+  const rows=[],lines=text.split(/\r?\n/);
+  const txn=/^(\d{1,2})-([A-Za-z]{3})\s+(\d{1,2})-([A-Za-z]{3})\s+(.*?)\s+([\d,]+(?:\.\d{1,2})?)\s*(CR)?\s*$/i;
+  for(const raw of lines){
+    const s=String(raw).replace(/\s+/g,' ').trim();
+    if(!s||/BALANCE B\/F|CURRENT BALANCE|ODD CENTS|LAST ITEM|^\d{4}-\d{4}/i.test(s))continue;
+    const mm=txn.exec(s);if(!mm)continue;
+    const trD=+mm[3],trM=monNum(mm[4]);
+    if(!trD||trM==null)continue;
+    const trY=(trM>stmtMon?year-1:year);
+    const date=ymd(trD,trM,trY);if(!date)continue;
+    const desc=(mm[5]||'').trim(),amount=num(mm[6]),cr=!!mm[7];
+    if(/=\s*$/.test(desc))continue; /* 積分回贈行（如 GP Rebate ...= 1314）非港幣金額 */
+    let kind='tx';
+    if(cr){if(/PAYMENT|THANK|還款|REPAY/i.test(desc))kind='payment';
+      else if(/REBATE|CASH REBATE|回贈|OFFSET|POINTS?/i.test(desc))kind='rebate';
+      else kind='credit';}
+    rows.push({date,amount,merchant:cleanMerch(desc),online:guessOnline(desc),category:guessCategory(desc),kind});
+  }
+  return rows;
+}
+function parseSC(text,year,stmtMon){
+  const lines=text.split(/\r?\n/),buys=[],refs=[];
+  const amtRx=/^(\d{2})\/(\d{2})\s+([\d,]+(?:\.\d{1,2})?)\s*(CR)?\s*$/;
+  const refRx=/Transaction Ref\s+(\d+)\s+(.+?)\s*$/i;
+  for(const raw of lines){
+    const s=String(raw).trim();
+    const a=amtRx.exec(s);
+    if(a){const mo=+a[1],dd=+a[2];if(mo<1||mo>12||dd<1||dd>31)continue;
+      const y=(mo>stmtMon?year-1:year);const date=ymd(dd,mo,y);if(!date)continue;
+      buys.push({date,amount:num(a[3]),kind:a[4]?'payment':'tx'});continue;}
+    const ref=refRx.exec(s);if(ref)refs.push((ref[2]||'').trim());
+  }
+  let pi=0;
+  return buys.map(b=>{let merchant=b.kind==='payment'?'信用卡還款':'';if(!b.kind&&pi<refs.length)merchant=refs[pi++];
+    return Object.assign({},b,{merchant:cleanMerch(merchant),online:guessOnline(merchant),category:guessCategory(merchant)});});
+}
+function guessCard(text){
+  const cards=S.data&&S.data.cards?S.data.cards:[],U=String(text||'').toUpperCase(),tags=[];
+  if(/CHILL|CHILL WORLD/i.test(U))tags.push('CHILL');
+  if(/GO/.test(U)&&(/中銀|BOC|銀聯/i.test(U)))tags.push('GO');
+  if(/CATHAY|國泰/i.test(U))tags.push('CATHAY','國泰');
+  if(/渣打|STANDARD CHARTERED/i.test(U))tags.push('渣打','BANK');
+  if(/HSBC|滙豐|RED|RC/i.test(U))tags.push('RED','HSBC');
+  for(const t of tags){const c=cards.find(c=>c.name.toUpperCase().indexOf(t)>=0);if(c)return c.id;}
+  return null;
+}
+function buildRows(text){
+  const det=stmtMeta(text);if(!det.bank)return [];
+  let rows=det.bank==='boc'?parseBOC(text,det.year,det.mon):parseSC(text,det.year,det.mon);
+  const gid=guessCard(text)||null,def=(S.data.cards[0]||{}).id||null;
+  rows.forEach(r=>{if(!r.cardId)r.cardId=gid||IMPPDF.cardId||def;if(!r.merchant&&r.kind!=='tx')r.merchant=(r.kind==='payment'?'信用卡還款':'退款');});
+  return rows;
+}
+async function pdfsToTexts(files){
+  if(pdfjsLib&&pdfjsLib.GlobalWorkerOptions&&!pdfjsLib.GlobalWorkerOptions.workerSrc){
+    const el=document.querySelector('script[src*="pdf.min.js"]');
+    const base=(el&&el.src)||'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc=base.replace('pdf.min.js','pdf.worker.min.js');
+  }
+  const out=[];
+  for(const f of files){
+    const arr=await f.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:arr}).promise;
+    let t='';
+    for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const c=await pg.getTextContent();t+=c.items.map(it=>it.str).join('\n');}
+    out.push(t);
+  }
+  return out;
+}
+async function aiChat(prompt){
+  const c=getAiCfg();
+  const res=await fetch((c.base||'').replace(/\/+$/,'')+'/chat/completions',
+    {method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+c.key},
+     body:JSON.stringify({model:c.model||'gpt-4o-mini',temperature:0,messages:[{role:'user',content:prompt}]})});
+  if(!res.ok){let m='HTTP '+res.status;try{const j=await res.json();m=(j.error&&j.error.message)||m;}catch(e){}throw new Error(m);}
+  const j=await res.json();
+  return (j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
+}
+function pdfReviewRows(rows){
+  return rows.map((r,i)=>{
+    const catOpts=S.data.categories.map(c=>`<option value="${c.id}" ${r.category===c.id?'selected':''}>${c.emoji} ${esc(c.name)}</option>`).join('');
+    const cardOpts=S.data.cards.map(c=>`<option value="${c.id}" ${r.cardId===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
+    const onlOpts=`<option value="" ${r.online==null?'selected':''}>不限</option><option value="1" ${r.online===true?'selected':''}>網上</option><option value="0" ${r.online===false?'selected':''}>門市</option>`;
+    const kd=KINDS[r.kind||'tx']||KINDS.tx;
+    return `<div class="row" style="flex-direction:column;align-items:stretch">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:12px;color:#fff;background:${kd.bg};border-radius:8px;padding:2px 9px">${kd.n}</span>
+      <input style="flex:0 0 118px;min-width:118px" type="date" value="${r.date||''}" data-change="pdft-upd" data-i="${i}" data-f="date">
+      <input style="flex:1;min-width:90px" type="number" step="0.01" value="${num(r.amount)}" data-change="pdft-upd" data-i="${i}" data-f="amount"></div>
+    <input style="margin-top:6px" type="text" value="${esc(r.merchant||'')}" placeholder="商家名稱" data-change="pdft-upd" data-i="${i}" data-f="merchant">
+    <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+      <select style="flex:1.2;min-width:110px" data-change="pdft-upd" data-i="${i}" data-f="category">${catOpts}</select>
+      <select style="flex:1;min-width:100px" data-change="pdft-upd" data-i="${i}" data-f="card">${cardOpts}</select>
+      <select style="flex:0 0 88px" data-change="pdft-upd" data-i="${i}" data-f="online">${onlOpts}</select></div></div>`;
+  }).join('');
+}
+function pdfImportSheet(step){
+  if(step===1){
+    const cardOpts=S.data.cards.map(c=>`<option value="${c.id}" ${IMPPDF.cardId===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
+    return `<div class="s-head">匯入月結單 PDF</div>
+    <p class="s-sub">一次選多份銀行月結單 PDF，自動提取消費（日期／金額／商家）並辨認回贈／還款。支援中銀（BOC）與渣打。${aiConfigured()?'':`<br><small style="color:var(--bad)">尚未設定 AI，將以本機關鍵字＋學習記憶分類（可到 設定→AI 智能標記 填寫 API Key）。</small>`}</p>
+    <div class="field"><label class="f-lbl">選擇 PDF 檔案（可多份）</label>
+    <input type="file" id="pdft-file" accept="application/pdf" multiple data-change="pdft-file"></div>
+    <div class="field"><label class="f-lbl">預設歸入卡片（自動偵測，逐筆仍可改）</label><select id="pdft-card" data-change="pdft-card">${cardOpts}</select></div>
+    <div class="field"><label class="f-lbl">或直接貼上月結單文字</label>
+    <textarea id="pdft-raw" rows="5" placeholder="貼上從 PDF 複製的文字（可省，選檔較方便）"></textarea></div>
+    <div class="s-actions"><button class="btn btn-primary" data-action="pdft-raw-go">解析（貼上內容）</button></div>
+    <p class="mini" style="margin-top:8px">PDF 只在此裝置解析，不會上傳。解析後提供「確認入帳」介面逐筆核對。</p>`;
+  }
+  const kinds=IMPPDF.rows.reduce((m,r)=>{const k=r.kind||'tx';m[k]=(m[k]||0)+1;return m;},{});
+  const counts=['tx','rebate','payment','credit'].filter(k=>kinds[k]).map(k=>KINDS[k].n+' '+kinds[k]).join(' · ');
+  return `<div class="s-head">確認月結單交易</div>
+  <p class="s-sub">共 ${IMPPDF.rows.length} 筆 · ${counts||'—'}。逐筆可改日期／金額／商家／分類／卡片／網上。你在這裡改的分類會被記住，下次同名商家自動沿用。回贈／還款／退款不進入「刷哪張」推薦。</p>
+  ${aiConfigured()?`<div style="margin:6px 0"><button class="btn btn-primary btn-block" data-action="pdft-ai">✨ AI 標記全部消費</button></div>`:''}
+  ${pdfReviewRows(IMPPDF.rows)}
+  <div class="s-actions">
+  <button class="btn btn-ghost" data-action="pdft-back">重新選檔案</button>
+  <button class="btn btn-primary" data-action="pdft-save">確認並匯入 ${IMPPDF.rows.length} 筆</button></div>`;
+}
+function aiSheetHTML(){
+  const c=getAiCfg();
+  return `<div class="s-head">AI 智能標記設定</div>
+  <p class="s-sub">填入你自有的大模型 API（OpenAI 相容介面）。Key 只存在這台裝置瀏覽器，不會上傳或寫入程式。</p>
+  <div class="field"><label class="f-lbl">OpenAI 相容介面地址</label><input id="ai-base" value="${esc(c.base||'https://api.openai.com/v1')}"></div>
+  <div class="field"><label class="f-lbl">API Key</label><input id="ai-key" type="password" value="${esc(c.key||'')}" placeholder="sk-..."></div>
+  <div class="field"><label class="f-lbl">模型名稱</label><input id="ai-model" value="${esc(c.model||'gpt-4o-mini')}"></div>
+  <div class="s-actions"><button class="btn btn-primary" data-action="ai-save">儲存</button></div>`;
+}
+function creditsSheet(){
+  const list=(S.data.credits||[]).slice().sort((a,b)=>b.date<a.date?-1:1).map(cm=>{
+    const kd=KINDS[cm.kind]||KINDS.tx,card=cardById(cm.cardId);
+    return `<div class="kv"><div><span style="font-size:12px;color:#fff;background:${kd.bg};border-radius:8px;padding:1px 8px">${kd.n}</span> <b>${fmtHKD(cm.amount)}</b><br>
+    <span class="mini">${fmtDateFull(cm.date)} · ${esc(cm.merchant)}${card?' · '+esc(card.name):''}</span></div>
+    <button class="btn btn-sm btn-ghost" data-action="cred-del" data-id="${cm.id}">刪除</button></div>`;
+  }).join('');
+  return `<div class="s-head">回贈與還款</div>
+  <p class="s-sub">自動辨認的 CR（回贈／退款）與信用卡還款（payment thank you），按標註日期入帳，不影響「刷哪張」推薦。注意 CR 可能來自幾個月前，日期保留月結單標註。</p>
+  ${list||'<div class="mini">未有記錄。</div>'}
+  <div class="s-actions"><button class="btn btn-ghost" data-action="sheet-close">關閉</button></div>`;
 }
 
 /* ============ 事件 ============ */
@@ -1517,7 +1723,95 @@ const ACTIONS={
   'data-clear':()=>confirmSheet('清空所有資料','所有卡片、消費記錄與回贈記錄都會被刪除，無法還原。','清空',()=>{
     const d=freshData();d.settings.ready=true;
     replaceData(d);toast('已清空','ok');
-  })
+  }),
+
+  /* ---- 月結單 PDF 匯入 + AI ---- */
+  'pdft-open':()=>{IMPPDF.rows=[];IMPPDF.cardId=(S.data.cards[0]||{}).id||'';openSheet(pdfImportSheet(1));},
+  'pdft-card':(d,t)=>{IMPPDF.cardId=t.value;},
+  'pdft-file':(d,t)=>{
+    const fs=t.files;if(!fs||!fs.length){toast('未選到檔案','err');return;}
+    if(typeof pdfjsLib==='undefined'||!pdfjsLib.getDocument){toast('PDF 解析器未載入，請檢查網絡後重試','err');return;}
+    IMPPDF.cardId=$('pdft-card')?$('pdft-card').value:IMPPDF.cardId;
+    toast('解析中，請稍候…');
+    pdfsToTexts(Array.from(fs)).then(segs=>{
+      const all=[];
+      for(const tx of segs)all.push(...buildRows(tx));
+      if(!all.length){toast('未能從這些 PDF 提取到交易，請改用「貼上文字」或直接逐筆記錄','err');openSheet(pdfImportSheet(1));return;}
+      IMPPDF.rows=all;openSheet(pdfImportSheet(2));toast('擷取到 '+all.length+' 筆待確認','ok');
+    }).catch(e=>{toast('讀取 PDF 失敗：'+(e.message||e),'err');});
+  },
+  'pdft-raw-go':()=>{
+    const raw=($('pdft-raw')?$('pdft-raw').value:'')||'';
+    IMPPDF.cardId=$('pdft-card')?$('pdft-card').value:IMPPDF.cardId;
+    if(!raw.trim()){toast('請貼上月結單文字','err');return;}
+    const rows=buildRows(raw);
+    if(!rows.length){toast('未能從文字提取交易','err');return;}
+    IMPPDF.rows=rows;openSheet(pdfImportSheet(2));toast('擷取到 '+rows.length+' 筆待確認','ok');
+  },
+  'pdft-back':()=>openSheet(pdfImportSheet(1)),
+  'pdft-upd':(d,t)=>{const r=IMPPDF.rows[+d.i];if(!r)return;const f=d.f,v=t.value;
+    if(f==='amount')r.amount=num(v);
+    else if(f==='online')r.online=v===''?null:v==='1';
+    else r[f]=v;},
+  'pdft-ai':async(d,t)=>{const btn=$('pdft-ai-btn')||t;if(IMPPDF.aiBusy)return;IMPPDF.aiBusy=true;if(btn){btn.disabled=true;btn.textContent='AI 標記中…';}
+    try{
+      const catSeed=S.data.categories.map(c=>c.id+':'+c.name+(c.keywords&&c.keywords.length?('→'+c.keywords.slice(0,5).join('/')):'')).join('; ');
+      const rows=IMPPDF.rows.filter(r=>r.kind==='tx'&&r.amount>0).slice(0,150);
+      if(!rows.length){toast('沒有可標記的消費','err');return;}
+      const prompt='你是一個信用卡消費分類助手。可用分類(編號:名稱:關鍵字)：'+catSeed+
+        '。請把每筆「商家」標記為其中一個 categoryid，並判斷 online 是否網上消費。只輸出 JSON 陣列（不要其他文字），格式：[{"i":0,"category":"online","online":true},...]。商家：\n'+
+        rows.map((r,i)=>i+':'+(r.merchant||'?')).join('\n');
+      const res=await aiChat(prompt);
+      const arr=JSON.parse(String(res).replace(/```json|```/g,'').replace(/^[\[{]/,'[').trim());
+      if(!Array.isArray(arr))throw new Error('AI 回傳格式錯誤');
+      const valid=S.data.categories.map(c=>c.id);
+      let n=0;
+      for(const a of arr){const r=IMPPDF.rows[+a.i];if(r&&r.kind==='tx'&&typeof a.i==='number'){
+        if(valid.indexOf(a.category)>=0){r.category=a.category;}
+        if(a.online===true||a.online==='true')r.online=true;else if(a.online===false||a.online==='false')r.online=false;
+        n++;}}
+      IMPPDF.rows.forEach(r=>{const l=learnedLabel(r.merchant);if(l&&r.kind==='tx'){if(l.category)r.category=l.category;if(l.online!=null)r.online=!!l.online;}});
+      openSheet(pdfImportSheet(2));toast('已標記 '+n+' 筆消費，可再逐筆微調','ok');
+    }catch(e){toast('AI 標記失敗：'+(e.message||e),'err');}
+    IMPPDF.aiBusy=false;
+  },
+  'pdft-save':()=>{
+    if(!IMPPDF.rows.length){toast('沒有可匯入的交易','err');return;}
+    let ok=0,cred=0,skip=0;
+    mutate(dd=>{
+      for(const r of IMPPDF.rows){
+        const amount=num(r.amount);
+        const date=(typeof r.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(r.date))?r.date:todayStr();
+        const merchant=String(r.merchant||'').replace(/\s+/g,' ').trim()||'(未署名)';
+        const kind=r.kind||'tx';
+        if(!(amount>0)){skip++;continue;}
+        const cardId=r.cardId||(S.data.cards[0]||{}).id;
+        if(!cardId){skip++;continue;}
+        if(kind==='tx'){
+          const ctx={date,amount,category:r.category||'other',online:r.online===true};
+          if(addTxFromCtx(ctx,cardId,merchant,{})){ok++;rememberLabel(dd,merchant,ctx.category,ctx.online,'manual');}
+        }else{dd.credits.push({id:uid(),date,cardId,amount:r2(amount),merchant,kind,note:''});cred++;}
+      }
+    });
+    closeSheet();
+    toast('已匯入消費 '+ok+' 筆、回贈/還款 '+cred+' 筆'+(skip?'（略過 '+skip+' 筆）':''),'ok');
+    UI.screen='records';render();
+  },
+  'cred-open':()=>openSheet(creditsSheet()),
+  'cred-del':d=>confirmSheet('刪除記錄','刪除此回贈／還款記錄？','刪除',()=>{
+    mutate(dd=>{dd.credits=(dd.credits||[]).filter(c=>c.id!==d.id);});toast('已刪除','ok');openSheet(creditsSheet());
+  }),
+  'ai-open':()=>openSheet(aiSheetHTML()),
+  'ai-save':()=>{
+    let c={on:true,base:($('ai-base').value||'').trim(),key:($('ai-key').value||'').trim(),model:($('ai-model').value||'').trim()||'gpt-4o-mini'};
+    if(!c.key){toast('請輸入 API Key','err');return;}
+    if(!/^https?:\/\//.test(c.base)){toast('請輸入完整介面地址（含 https://）','err');return;}
+    saveAiCfg(c);closeSheet();toast('AI 設定已儲存','ok');
+  },
+  'know-clear':()=>confirmSheet('清空學習記憶','將清除所有自動分類記憶，可再用月結單重新學習。','清空',()=>{
+    mutate(dd=>{dd.knowledge=[];});toast('已清空','ok');
+  }),
+  'know-del':d=>{mutate(dd=>{dd.knowledge=(dd.knowledge||[]).filter(k=>k.id!==d.id);});toast('已移除','ok');}
 };
 
 document.addEventListener('click',e=>{
