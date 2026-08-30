@@ -1039,10 +1039,10 @@ function recordsHTML(){
     <div class="row-t2">${fmtDateFull(t.date)} · ${esc(card?card.name:'已刪卡片')}${t.online?' · 網上':''}${t.demo?' <span class="b b-demo">示例</span>':''}${t.ruleName?' · '+esc(t.ruleName):''}</div></div>
     <div class="row-amt amt-bad">${fmtHKD(t.amount)}<small class="amt-dim">${hasAct?'實際 '+fmtHKD(t.actualReward):'預計 '+fmtHKD(t.expectedReward)}</small></div></div>`;
   }).join('');
-  return `${tabsHTML('tx')}${monNavHTML('rec')}
-  <section class="panel" style="display:flex;gap:10px">
+  return `<section class="panel" style="display:flex;gap:10px">
   <button class="btn btn-primary" style="flex:1.8" data-action="pdft-open">匯入月結單 PDF</button>
   <button class="btn btn-ghost" style="flex:1" data-action="tx-add">新增消費</button></section>
+  ${tabsHTML('tx')}${monNavHTML('rec')}
   <div class="stat-strip">
   <div class="stat"><div class="sv">${fmtHKD(spend)}</div><div class="sl">總消費</div></div>
   <div class="stat s-est"><div class="sv">${fmtHKD(exp)}</div><div class="sl">預計回贈</div></div>
@@ -1197,7 +1197,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</section>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.2 · 支援多銀行月結單 PDF 導入</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.3 · 支援多銀行月結單 PDF 導入</span></div>
   <p class="mini" style="margin-top:8px">內建卡片回贈規則為示例資料，並非銀行官方條款，請自行核實及更新；計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
