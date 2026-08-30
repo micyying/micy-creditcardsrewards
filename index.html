@@ -72,6 +72,13 @@ input[type=date]{padding:9px 10px}
 .perf-src{padding:0 13px 11px;font-size:11.5px;color:var(--muted);line-height:1.4}
 .good{color:var(--ok,#0E9663)}.bad{color:var(--bad,#D64545)}
 
+/* 可折疊面板 */
+.tgl-summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;user-select:none;margin:0}
+.tgl-summary::-webkit-details-marker{display:none}
+.tgl-summary::after{content:'▾';color:var(--muted);transition:transform .18s;font-size:14px;flex:none}
+details.panel[open]>.tgl-summary::after{transform:rotate(180deg)}
+details.panel summary.tgl-summary .p-title{font-size:15px;font-weight:700;margin:0}
+
 /* buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:13px;
   padding:11px 16px;font-weight:700;font-size:15px;transition:transform .06s,opacity .15s}
@@ -577,6 +584,13 @@ function load(){
   if(!S.data.rewardMonths)S.data.rewardMonths=[];
   if(!S.data.credits)S.data.credits=[];
   if(!S.data.knowledge)S.data.knowledge=[];
+  /* 遷移 v2.7：把誤判為「回贈」的信用卡還款改回「payment」，避免大額還款計入回贈
+     （僅針對描述含還款字眼的 cred 記錄，保留退款/真正回贈不動） */
+  let mig=false;
+  for(const c of S.data.credits){
+    if((c.kind==='rebate'||c.kind==='credit')&&PAY_DESC.test(String(c.merchant||c.note||''))){c.kind='payment';mig=true;}
+  }
+  if(mig)saveLocal();
 }
 function saveLocal(){try{localStorage.setItem(LS_DATA,JSON.stringify(S.data));}catch(e){toast('本機儲存失敗：資料可能過大','err');}}
 function mutate(fn){
@@ -1241,10 +1255,24 @@ function recordsHTML(){
       <div class="row-t2">${monthLabel(rm.month)} 實際入賬${rm.note?' · '+esc(rm.note):''}</div></div>
       <div class="row-amt amt-good">${fmtHKD(rm.amount)}</div></div>`;
     }).join('');
+    /* 回贈/還款置頂：信用卡還款、退款、舊版回贈，讓「回贈月結」即便尚無月結回贈也有內容 */
+    const creds=(S.data.credits||[]).filter(c=>!c.demo)
+      .filter(c=>String(c.date||'').slice(0,7)===m&&(UI.recCard==='all'||c.cardId===UI.recCard))
+      .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.id).localeCompare(String(a.id)));
+    const credRows=creds.map(c=>{
+      const card=cardById(c.cardId),kd=KINDS[c.kind]||KINDS.tx;
+      return `<div class="kv"><div><span style="font-size:11px;color:#fff;background:${kd.bg};border-radius:7px;padding:1px 7px">${kd.n}</span>
+      <b>${fmtHKD(c.amount)}</b><br><span class="mini">${fmtDateFull(c.date)} · ${esc(c.merchant)}${card?' · '+esc(card.name):''}</span></div>
+      <button class="btn btn-sm btn-ghost" data-action="cred-del" data-id="${c.id}">刪除</button></div>`;
+    }).join('');
     return `${tabsHTML('rm')}
     <section class="panel" style="margin-bottom:2px"><button class="btn btn-primary btn-block" data-action="rm-add">新增月結回贈</button></section>
     ${monNavHTML('rec')}
-    ${rows||'<div class="empty">本月未有月結回贈記錄<br>銀行月結單出咗之後，在這裡記錄實際入賬總額</div>'}`;
+    <section class="panel"><h2 class="p-title">回贈/還款</h2>
+    ${credRows||'<div class="mini">本月無回贈／還款／退款入賬記錄。</div>'}
+    <button class="btn btn-ghost btn-block" style="margin-top:10px" data-action="cred-open">查看全部回贈/還款</button></section>
+    <section class="panel"><h2 class="p-title">月結回贈</h2>
+    ${rows||'<div class="mini">本月未有月結回贈記錄<br>銀行月結單出咗之後，在這裡記錄實際入賬總額</div>'}</section>`;
   }
   const txs=txsOfMonth(m).filter(t=>(UI.recCard==='all'||t.cardId===UI.recCard)&&(UI.recCat==='all'||t.category===UI.recCat))
     .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
@@ -1428,9 +1456,9 @@ function settingsHTML(){
   <button class="btn btn-ghost" style="flex:1" data-action="bak-pick">匯入資料檔</button></div>
   <input type="file" id="bak-file" accept=".json,application/json" data-change="bak-file" hidden>
   ${bakRows?'<div class="divider"></div><div class="p-title" style="font-size:13px">本機快照（衝突／覆蓋前自動保存）</div>'+bakRows:''}</section>
-  <section class="panel"><h2 class="p-title">分類與關鍵字</h2>
-  <p class="p-sub">關鍵字用於語句匯入時自動分類</p>${catRows}
-  <button class="btn btn-ghost btn-block" style="margin-top:10px" data-action="cat-add">新增分類</button></section>
+  <details class="panel" open><summary class="tgl-summary"><span class="p-title">分類與關鍵字</span></summary>
+  <p class="p-sub" style="margin-top:6px">關鍵字用於語句匯入時自動分類</p>${catRows}
+  <button class="btn btn-ghost btn-block" style="margin-top:10px" data-action="cat-add">新增分類</button></details>
   <section class="panel"><h2 class="p-title">示例與資料</h2>
   <div style="display:flex;gap:10px">
   <button class="btn btn-ghost" style="flex:1" data-action="demo-load">載入示例資料</button>
@@ -1439,12 +1467,12 @@ function settingsHTML(){
   <section class="panel"><h2 class="p-title">AI 智能標記</h2><p class="p-sub">用大模型把月結單消費自動分類，並記住你的更正（接受 OpenAI 相容介面：GPT／DeepSeek／通義／豆包等）</p>
   <div class="kv"><span class="kk">狀態</span><span class="vv">${aiConfigured()?esc(aiCfg.model):'未設定'}</span></div>
   <button class="btn btn-ghost btn-block" style="margin-top:8px" data-action="ai-open">${aiConfigured()?'修改 AI 設定':'設定 AI'}</button></section>
-  <section class="panel"><h2 class="p-title">學習記憶（自動分類）</h2>
-  <p class="p-sub">匯入月結單時你在「確認頁」改/確認的分類會被記住，之後同名商家自動沿用（即使不開 AI）。</p>
+  <details class="panel" open><summary class="tgl-summary"><span class="p-title">學習記憶（自動分類）</span></summary>
+  <p class="p-sub" style="margin-top:6px">匯入月結單時你在「確認頁」改/確認的分類會被記住，之後同名商家自動沿用（即使不開 AI）。</p>
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
-  ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</section>
+  ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</details>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.6 · 回贈校準引擎＋規則版本化</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.7 · 月結單回贈自動對應＋卡片自動偵測</span></div>
   <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -1588,6 +1616,15 @@ function cleanMerch(d){
   s=s.replace(/\s{2,}/g,' ').trim();
   return s;
 }
+const PAY_DESC=/AUTO ?PAY|自動轉帳|自動轉賬|自動扣數|繳款|應繳|還款|已還|PAYMENT|PAY ?24|PAYME|THANK|DIRECT ?DEBIT|REPAY|轉帳還款|轉賬還款|全數償還/i;
+const REB_DESC=/CASH ?REBATE|CASHBACK|現金回贈|回贈|REBATE|REDEMPTION|積分兌換|紅利回饋|金立GO|FUN/i;
+/* 依描述判斷是否為交易收入；還款(PAY_DESC)永遠優先於回贈，避免將大額還款計入回贈 */
+function incType(desc){
+  const d=String(desc||'');
+  if(PAY_DESC.test(d))return 'payment';
+  if(REB_DESC.test(d))return 'rebate';
+  return 'credit';
+}
 function stmtMeta(text){
   const U=String(text||'').toUpperCase();
   let bank=null;
@@ -1632,13 +1669,10 @@ function parseBOC(text,year,stmtMon){
     const desc=(mm[5]||'').trim(),amount=num(mm[6]),cr=!!mm[7];
     if(/=\s*$/.test(desc))continue; /* 積分回贈行（如 GP Rebate ...= 1314）非港幣金額 */
     let kind='tx';
-    const incTx=/CASH ?REBATE|CASHBACK|回贈|REBATE|OFFSET|GO ?MERCHANT|POINTS?/i;
-    if(cr){ /* 所有帶 CR 的都是收入 */
-      if(/PAYMENT|THANK|還款|REPAY/i.test(desc))kind='payment';
-      else if(incTx.test(desc))kind='rebate';
-      else kind='credit'; /* Tmall 等退貨退款 → 收入 */
+    if(cr){ /* 所有帶 CR 的都是收入：還款優先、其次回贈、其餘退款 */
+      kind=incType(desc);
     }
-    else if(incTx.test(desc)){ /* GO卡「x% CASH REBATE (GO MERCHANT)」現金回贈（未標 CR 亦為收入） */
+    else if(/REBATE|CASH ?REBATE|CASHBACK|回贈/i.test(desc)){ /* 現金回贈（未標 CR 亦為收入） */
       kind='rebate';
     }
     rows.push({date,amount,merchant:cleanMerch(desc),online:guessOnline(desc),category:guessCategory(desc),kind});
@@ -1682,7 +1716,7 @@ function parseMOX(text,year,stmtMon){
     }
     desc=cleanMerch(desc);
     let kind='tx';
-    if(amount>0){ kind=/^YANG|^YING|REPAY|PAYMENT|還款|TOP ?UP|TRANSFER/i.test(desc)?'payment':'rebate'; amount=Math.abs(amount); }
+    if(amount>0){ kind=incType(desc); if(kind==='credit')kind='payment'; amount=Math.abs(amount); } /* Mox 正數=還款/回贈，一律視收款 */
     else amount=Math.abs(amount);
     out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind});
   }
@@ -1708,7 +1742,7 @@ function parseHSBC(text,year,stmtMon){
     desc=desc.replace(/\s+(HKG|HONG ?KONG)\s+(HK)\s*$/i,'').replace(/\s+(CHN|CHINA)\s+(CN)\s*$/i,'')
       .replace(/\s+(HKG|HK|CHN|CN|CHINA|HONG ?KONG|SGP|TWN|MO|MOC|JPN|KOR|THA|USA|US)\s*$/gi,'').trim();
     const amount=num(mm[6]),cr=!!mm[7];
-    let kind=cr?((/REBATE|CASH BACK|回贈|OFFSET|POINTS/i.test(desc))?'rebate':'credit'):'tx';
+    let kind=cr?incType(desc):'tx'; /* 還款/自動轉賬優先，其次回贈 */
     out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind,cur:cur||'HKD'});
   }
   return out;
@@ -1730,25 +1764,31 @@ function parseAEON(text,year,stmtMon){
     const date=ymd(+m[1],monNum(m[2]),+m[3]); if(!date)continue;
     let desc=strip(m[7]); const amount=num(m[8]),cr=!!m[9];
     let kind='tx';
-    if(cr){ if(/DIRECT DEBIT|PAYMT|還款|REPAY/i.test(desc))kind='payment';
-      else if(/REDEMPTION|REBATE|退款|REFUND|OFFSET|回贈/i.test(desc))kind='rebate'; else kind='credit'; }
+    if(cr){ kind=incType(desc); if(kind==='credit'&&/REFUND|退款|退貨|OFFSET/i.test(desc))kind='credit'; else if(kind==='credit')kind='payment'; }
+    /* AEON 收款：還款優先、退款→credit、回贈→rebate、其他收款視為還款 */
     out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind});
   }
   return out;
 }
 function guessCard(text){
   const cards=S.data&&S.data.cards?S.data.cards:[],U=String(text||'').toUpperCase(),tags=[];
-  if(/CHILL|CHILL WORLD/i.test(U))tags.push('CHILL');
+  const bank=stmtMeta(text).bank||'';
+  const BANKNAME={boc:'中銀',sc:'渣打',hsbc:'滙豐',mox:'Mox',aeon:'AEON'};
+  if(bank==='boc'&&/CHILL/.test(U))tags.unshift('CHILL');
   if(/GO/.test(U)&&(/中銀|BOC|銀聯/i.test(U)))tags.push('GO');
   if(/CATHAY|國泰/i.test(U))tags.push('CATHAY','國泰');
   if(/渣打|STANDARD CHARTERED/i.test(U))tags.push('渣打','BANK');
   if(/PULSE|HSBC UNIONPAY/i.test(U))tags.push('PULSE');
   if(/HSBC|滙豐|RED|RC/i.test(U))tags.push('RED','HSBC');
-  if(/MOX|\bMOX\b|Mox Credit/i.test(U))tags.push('MOX');
+  if(/MOX|\bMOX\b/i.test(U))tags.push('MOX');
   if(/WAKUWAKU/i.test(U))tags.push('WAKUWAKU');
   if(/PURPLE|AEON/i.test(U)&&/VISA/i.test(U))tags.push('AEON','PURPLE');
   if(/AEON/i.test(U))tags.push('AEON');
-  for(const t of tags){const c=cards.find(c=>c.name.toUpperCase().indexOf(t)>=0);if(c)return c.id;}
+  const want=BANKNAME[bank];
+  for(const t of tags){
+    for(const c of cards){if(c.name.toUpperCase().indexOf(t)<0)continue;
+      if(!want||!c.bank||(c.bank).indexOf(want)>=0)return c.id;}
+  }
   return null;
 }
 function buildRows(text){
@@ -1848,8 +1888,11 @@ function pdfImportSheet(step){
   }
   const kinds=IMPPDF.rows.reduce((m,r)=>{const k=r.kind||'tx';m[k]=(m[k]||0)+1;return m;},{});
   const counts=['tx','rebate','payment','credit'].filter(k=>kinds[k]).map(k=>KINDS[k].n+' '+kinds[k]).join(' · ');
+  const detCards=[...new Set(IMPPDF.rows.map(r=>r.cardId).filter(Boolean))].map(id=>cardById(id)).filter(Boolean);
+  const detBanner=detCards.length?`<div style="margin:2px 0 8px;padding:9px 12px;background:#EFF2FE;border:1px solid #DCE1FB;border-radius:11px;font-size:12.5px;color:#2A2A5A">🔍 自動偵測到 ${detCards.map(c=>esc(c.name)).join('、')} 的月結單，已自動幫每筆對應卡片；有誤可逐筆改。</div>`:'';
   return `<div class="s-head">確認月結單交易</div>
   <p class="s-sub">共 ${IMPPDF.rows.length} 筆 · ${counts||'—'}。已自動分類，<b>有問題再逐筆點「修改」編輯</b>（日期／金額／商家／分類／卡片／網上）；你在這裡改的分類會被記住，下次同名商家自動沿用。回贈／還款／退款不進入「刷哪張」推薦。</p>
+  ${detBanner}
   ${aiConfigured()?`<div style="margin:6px 0"><button class="btn btn-primary btn-block" data-action="pdft-ai">✨ AI 標記全部消費</button></div>`:''}
   ${pdfReviewRows(IMPPDF.rows)}
   <button class="sheet-float" data-action="pdft-bottom" title="拉到最下面確認">
@@ -2176,8 +2219,9 @@ const ACTIONS={
     IMPPDF.cardId=$('pdft-card')?$('pdft-card').value:IMPPDF.cardId;
     toast('解析中，請稍候…');
     pdfsToTexts(Array.from(fs)).then(segs=>{
-      const all=[];
-      for(const tx of segs)all.push(...buildRows(tx));
+      const all=[];let gDet=null;
+      for(const tx of segs){const seg=buildRows(tx);all.push(...seg);if(!gDet)gDet=guessCard(tx);}
+      if(gDet)IMPPDF.cardId=gDet;   /* 自動偵測到卡片 → 同步預設值 */
       if(!all.length){toast('未能從這些 PDF 提取到交易，請改用「貼上文字」或直接逐筆記錄','err');openSheet(pdfImportSheet(1));return;}
       IMPPDF.rows=all;openSheet(pdfImportSheet(2));toast('擷取到 '+all.length+' 筆待確認','ok');
     }).catch(e=>{toast('讀取 PDF 失敗：'+(e.message||e),'err');});
