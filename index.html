@@ -292,6 +292,8 @@ const fmtDate=d=>d?d.slice(8,10)+'/'+d.slice(5,7):'';
 const fmtDateFull=d=>d?d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(0,4):'';
 const fmtTime=ts=>{const d=new Date(ts||0);return d.getHours()?pad2(d.getHours())+':'+pad2(d.getMinutes()):'';};
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const dateAddStr=(ds,days)=>{const[y,mo,d]=String(ds).split('-').map(Number);const dt=new Date(y,mo-1,d+days);return dt.getFullYear()+'-'+pad2(dt.getMonth()+1)+'-'+pad2(dt.getDate());};
+const monthsBetween=(m1,m2)=>{const a=+m1.slice(0,4)*12+(+m1.slice(5,7)-1),b=+m2.slice(0,4)*12+(+m2.slice(5,7)-1);return Math.max(0,b-a);};
 const rand36=n=>{const c='abcdefghjkmnpqrstuvwxyz23456789';let s='';for(let i=0;i<n;i++)s+=c[Math.floor(Math.random()*c.length)];return s;};
 const ICON=(document.querySelector('link[rel="apple-touch-icon"]')||{}).href||'';
 
@@ -461,6 +463,45 @@ const REAL_CARDS=[
 ];
 const FACE_REV=4; /* 卡面版本：改版後強制更新已儲存卡片的真实卡面 */
 const RULES_REV=2; /* 規則版本：碌邊張(swipewhich)同步後強制更新回贈規則（手動改過的卡除外） */
+const SYNC_RULE_ID=/^r-[a-z0-9_]+-[0-9]/; /* 碌邊張同步規則的 id 格式（r-卡id-編號）；用戶自建規則不符合此格式 */
+/* 同步規則合併：實質變更（率/上限/分類/渠道/門檻）→ 舊版保留至昨日、新版今日起生效，
+   舊帳單測算沿用舊規則；名稱/到期日變動則原地更新；已消失的同步規則保留作歷史（終結於昨日）。
+   baseId 記錄版本所屬家族（源自碌邊張哪條規則），重複同步不會重複開新版本 */
+function mergeSyncedRules(card,incoming){
+  const today=todayStr(),yest=dateAddStr(today,-1);
+  const cur=(card.rules||[]).slice();
+  const out=[];let changedAt=null;
+  const famIds=new Set((incoming||[]).map(x=>x.id));
+  for(const nr of(incoming||[])){
+    const fam=cur.filter(x=>x.id===nr.id||x.baseId===nr.id);
+    const or=fam.length?fam.slice().sort((a,b)=>String(b.end||'9999').localeCompare(String(a.end||'9999')))[0]:null;
+    const active=or&&(!or.end||or.end>=today);
+    if(!or){out.push(Object.assign({},nr));continue;}                                   /* 新規則：直接加入 */
+    const same=(or.rate===nr.rate)&&(or.capMonth===nr.capMonth)&&(or.category===nr.category)
+      &&(or.online===nr.online)&&(or.minSpend===nr.minSpend);
+    if(same&&active){                                                                   /* 只改名/到期日：原地更新 */
+      out.push.apply(out,fam.map(v=>v===or?Object.assign({},or,{name:nr.name,end:nr.end||null}):v));
+      continue;
+    }
+    if(!same){                                                                          /* 實質變更：全部在用版本終結於昨日 */
+      for(const v of fam){if(!v.end||v.end>yest)v.end=(v.start&&v.start>yest)?v.start:yest;}
+    }
+    out.push.apply(out,fam);
+    if(!(nr.end&&nr.end<today)){                                                        /* 新版今日起生效（已過期則不加） */
+      out.push(Object.assign({},nr,{id:nr.id+'-'+rand36(5),baseId:nr.id,start:today}));
+    }
+    changedAt=today;
+  }
+  for(const or of cur){
+    if(famIds.has(or.id)||famIds.has(or.baseId||''))continue;                          /* 家族仍在（含衍生版本） */
+    if(!SYNC_RULE_ID.test(String(or.id||''))){out.push(Object.assign({},or));continue;}  /* 用戶自建規則：完整保留 */
+    const e=(!or.end||or.end>yest)?((or.start&&or.start>yest)?or.start:yest):or.end;     /* 官方下架：保留作歷史 */
+    out.push(Object.assign({},or,{end:e}));
+    changedAt=changedAt||today;
+  }
+  if(changedAt)card.rulesChangedAt=today;
+  return out;
+}
 function ensureRealCards(){
   if(!S.data||!S.data.cards)return;
   const REMOVE=['card-sc-smart','card-citi-cb']; /* 舊示例卡（非你名下）移除 */
@@ -472,8 +513,8 @@ function ensureRealCards(){
     if(ex){
       if(ex.demo){ex.demo=false;changed=true;}                  /* 舊示例卡升級為真實卡 */
       if(needFace||!ex.face){ex.face=c.face;changed=true;}      /* 換上真實卡面 */
-      if(needRules&&!ex.rulesCustom){                           /* 碌邊張同步的規則覆寫（手動改過除外） */
-        ex.rules=JSON.parse(JSON.stringify(c.rules||[]));
+      if(needRules&&!ex.rulesCustom){                           /* 碌邊張同步的規則覆寫（手動改過除外；實質變更會分版本） */
+        ex.rules=mergeSyncedRules(ex,c.rules||[]);
         if(c.note)ex.note=c.note;
         if(typeof c.baseRate==='number')ex.baseRate=c.baseRate;
         changed=true;
@@ -579,24 +620,45 @@ function recommend(ctx){
   return out;
 }
 function credibilityFor(cardId){
-  const pairs=[];
+  /* 回贈校準：以「每月實際入賬 ÷ 當月理論預計」為基礎，實際數據優先於理論計算。
+     實際來源 = 逐筆實際 + 手動月結 + 月結單 CR 自動入帳；近期月份加權較重；
+     規則改版前的月份減權；樣本少時向理論值（×1.0）收縮，愈多月結單愈準 */
+  const card=cardById(cardId);
+  const months=new Map();
+  const add=(m,e,a)=>{if(!m||m.length<7)return;const o=months.get(m)||{e:0,a:0};o.e+=e||0;o.a+=a||0;months.set(m,o);};
   for(const tx of S.data.transactions){
-    if(tx.cardId!==cardId||tx.actualReward==null||!tx.expectedReward)continue;
-    pairs.push([tx.expectedReward,tx.actualReward]);
+    if(tx.cardId!==cardId||tx.demo)continue;
+    add(tx.date.slice(0,7),tx.expectedReward||0,tx.actualReward||0);
   }
-  for(const rm of S.data.rewardMonths){
-    if(rm.cardId!==cardId)continue;
-    let exp=0,hasActualTx=false;
-    for(const tx of S.data.transactions){
-      if(tx.cardId!==cardId||tx.date.slice(0,7)!==rm.month)continue;
-      if(tx.actualReward==null)exp+=tx.expectedReward||0;else hasActualTx=true;
+  for(const rm of S.data.rewardMonths){if(rm.cardId===cardId&&!rm.demo)add(rm.month,0,rm.amount||0);}
+  for(const c of S.data.credits||[]){if(c.kind==='rebate'&&c.cardId===cardId&&!c.demo)add(String(c.date||'').slice(0,7),0,c.amount||0);}
+  const now=nowMonth(),chg=card&&card.rulesChangedAt?String(card.rulesChangedAt).slice(0,7):null;
+  let w=0,s=0,n=0;
+  for(const m of [...months.keys()].sort()){
+    const o=months.get(m);
+    if(o.e<5)continue;                            /* 預計太少，比率不可靠 */
+    let a=o.a;
+    if(a<=0.01){                                  /* 回贈多於下月才入賬：下月有 CR 而無消費 → 視為本月回贈 */
+      const nx=months.get(monthAdd(m,1));
+      if(nx&&nx.a>0.01&&nx.e<5)a=nx.a;
     }
-    if(exp>0.01&&!hasActualTx)pairs.push([exp,rm.amount]);
+    if(a<=0.01)continue;                          /* 月結單未匯入，不作數 */
+    const ratio=clamp(a/o.e,0,1.5);
+    let wt=Math.pow(0.88,monthsBetween(m,now));   /* 近期月份權重較高 */
+    if(chg&&m<chg)wt*=0.4;                        /* 規則改版前的月份減權（舊規則的偏差未必延續） */
+    w+=wt;s+=ratio*wt;n++;
   }
-  if(pairs.length<2)return null;
-  let w=0,s=0;
-  for(const[e,a]of pairs){w+=e;s+=clamp(a/e,0,1.5)*e;}
-  return {pct:Math.round(100*s/w),n:pairs.length};
+  if(!n)return null;
+  const raw=w>0?s/w:1,K=2;                        /* 貝葉斯收縮：月數少時向 ×1.0 靠攏 */
+  const factor=clamp((w*raw+K)/(w+K),0,1.5);
+  return {factor,pct:Math.round(factor*100),n};
+}
+function actualOfMonth(cardId,month){            /* 某卡某月實際入賬（逐筆＋手動＋CR 自動） */
+  let tx=0,rm=0,cr=0;
+  for(const t of S.data.transactions){if(t.cardId===cardId&&!t.demo&&t.date.slice(0,7)===month)tx+=t.actualReward||0;}
+  for(const r of S.data.rewardMonths){if(r.cardId===cardId&&!r.demo&&r.month===month)rm+=r.amount||0;}
+  for(const c of S.data.credits||[]){if(c.kind==='rebate'&&c.cardId===cardId&&!c.demo&&String(c.date||'').slice(0,7)===month)cr+=c.amount||0;}
+  return {tx:r2(tx),rm:r2(rm),cr:r2(cr),total:r2(tx+rm+cr)};
 }
 function guessCategory(desc){
   const l=learnedLabel(desc);
@@ -1022,24 +1084,28 @@ function recHTML(list){
   if(!S.data.cards.length)return `<div class="empty">尚未有卡片資料<br><br><button class="btn btn-primary btn-sm" data-action="go" data-screen="cards">先到「卡片」新增</button></div>`;
   if(!list.length)return '<div class="empty">沒有可用的推薦結果</div>';
   const top=list[0];
-  const cred=top.cred?top.cred.pct+'%':'—';
-  const credN=top.cred?`（根據 ${top.cred.n} 筆實際記錄）`:'（尚無數據）';
+  const cal=top.cred;
+  const useCal=cal&&cal.factor>0;
+  const calAmt=useCal?top.reward*cal.factor:null;
   let html=`
   <div class="rec-top">
     <div class="rec-label">Micy刷哪張推薦</div>
     <div class="rec-name">${esc(top.card.name)} <span class="b b-off">官方規則</span></div>
-    <div class="rec-amount">${fmtHKD(top.reward)} <small>預計回贈</small> <span class="b b-est">預計</span></div>
+    <div class="rec-amount">${fmtHKD(calAmt!=null?calAmt:top.reward)} <small>${calAmt!=null?'校準估計':'預計回贈'}</small> <span class="b b-est">預計</span></div>
     <div class="rec-line">原因：${esc(top.reason)}</div>
-    <div class="rec-cred"><span>歷史可信度 <b>${cred}</b> ${credN}</span> <span class="b b-act">實際</span></div>
+    <div class="rec-line">官方規則測算 ${fmtHKD(top.reward)}${calAmt!=null?' · 歷史校準 ×'+cal.pct+'%（'+cal.n+' 個月實際數據，實際優先）':' · 暫無歷史實際數據對照'}</div>
     <div class="rec-act"><button class="btn btn-primary btn-block" data-action="rec-log" data-id="${top.card.id}">記錄此消費</button></div>
   </div>`;
   const rest=list.slice(1);
   if(!rest.length)return html;
-  return html+'<div class="alt-head">其他選擇</div>'+rest.map(c=>`
-  <div class="alt-row"><div style="min-width:0"><div class="nm">${esc(c.card.name)}</div>
-  <div class="why">${esc(c.reason)}</div></div>
-  <div style="text-align:right;flex:none"><div class="amt">${fmtHKD(c.reward)}</div>
-  <button class="btn-link" data-action="rec-log" data-id="${c.card.id}">記錄</button></div></div>`).join('');
+  return html+'<div class="alt-head">其他選擇</div>'+rest.map(c=>{
+    const cc=c.cred,ca=cc&&cc.factor>0?c.reward*cc.factor:null;
+    return `<div class="alt-row"><div style="min-width:0"><div class="nm">${esc(c.card.name)}</div>
+  <div class="why">${esc(c.reason)}</div>
+  ${cc&&cc.factor>0?`<div class="why">校準估計 ${fmtHKD(ca)} · 官方 ${fmtHKD(c.reward)} ×${cc.pct}%</div>`:''}</div>
+  <div style="text-align:right;flex:none"><div class="amt">${fmtHKD(ca!=null?ca:c.reward)}</div>
+  <button class="btn-link" data-action="rec-log" data-id="${c.card.id}">記錄</button></div></div>`;
+  }).join('');
 }
 
 /* ---- 卡片 ---- */
@@ -1079,9 +1145,11 @@ function cardSheet(cardId){
   }
   const ruleRows=rules.map(r=>{
     const cat=catById(r.category);
+    const valid=[r.start?r.start+' 起':'',r.end?'至 '+r.end:''].filter(Boolean).join(' ');
+    const verTag=(r.end&&SYNC_RULE_ID.test(String(r.id)))?' · 歷史版本':'';
     return `<div class="cset-row" data-action="rule-edit" data-id="${cardId}|${r.id}">
     <div class="cr"><div class="ct">${esc(r.name||'規則')}</div>
-    <div class="cs">${cat.emoji} ${esc(cat.name)} · 額外 ${fmtPct(r.rate)}${r.capMonth?' · 每月上限 '+fmtHKD(r.capMonth):''}${r.online===true?' · 只限網上':r.online===false?' · 只限門市':''}</div></div>
+    <div class="cs">${cat.emoji} ${esc(cat.name)} · 額外 ${fmtPct(r.rate)}${r.capMonth?' · 每月上限 '+fmtHKD(r.capMonth):''}${r.online===true?' · 只限網上':r.online===false?' · 只限門市':''}${valid?' · '+valid:''}${verTag}</div></div>
     ${r.online===true?'<span class="cset-tag">網上</span>':''}<span class="caret">›</span></div>`;
   }).join('');
   return `<div class="cset">
@@ -1158,13 +1226,19 @@ function recordsHTML(){
   const spend=txs.reduce((s,t)=>s+t.amount,0);
   const exp=txs.reduce((s,t)=>s+(t.expectedReward||0),0);
   const act=txs.reduce((s,t)=>s+(t.actualReward||0),0);
+  const calByCard=new Map();
+  for(const t of txs){if(!calByCard.has(t.cardId))calByCard.set(t.cardId,credibilityFor(t.cardId));}
+  let calExp=0,anyCal=false;
+  for(const t of txs){const c=calByCard.get(t.cardId);if(c&&c.factor>0){calExp+=(t.expectedReward||0)*c.factor;anyCal=true;}else calExp+=t.expectedReward||0;}
+  calExp=r2(calExp);
   const rows=txs.map(t=>{
     const card=cardById(t.cardId),cat=catById(t.category),hasAct=t.actualReward!=null;
+    const c=calByCard.get(t.cardId),cAmt=(c&&c.factor>0)?(t.expectedReward||0)*c.factor:null;
     return `<div class="row" data-action="tx-edit" data-id="${t.id}">
     <div class="row-ico">${cat.emoji}</div>
     <div class="row-main"><div class="row-t1">${esc(t.merchant)}</div>
     <div class="row-t2">${fmtDateFull(t.date)} · ${esc(card?card.name:'已刪卡片')}${t.online?' · 網上':''}${t.demo?' <span class="b b-demo">示例</span>':''}${t.ruleName?' · '+esc(t.ruleName):''}</div></div>
-    <div class="row-amt amt-bad">${fmtHKD(t.amount)}<small class="amt-dim">${hasAct?'實際 '+fmtHKD(t.actualReward):'預計 '+fmtHKD(t.expectedReward)}</small></div></div>`;
+    <div class="row-amt amt-bad">${fmtHKD(t.amount)}<small class="amt-dim">${hasAct?'實際 '+fmtHKD(t.actualReward):(cAmt!=null?'校準 '+fmtHKD(cAmt)+' · 理論 '+fmtHKD(t.expectedReward):'預計 '+fmtHKD(t.expectedReward))}</small></div></div>`;
   }).join('');
   return `<section class="panel" style="display:flex;gap:10px">
   <button class="btn btn-primary" style="flex:1.8" data-action="pdft-open">匯入月結單 PDF</button>
@@ -1172,7 +1246,7 @@ function recordsHTML(){
   ${tabsHTML('tx')}${monNavHTML('rec')}
   <div class="stat-strip">
   <div class="stat"><div class="sv">${fmtHKD(spend)}</div><div class="sl">總消費</div></div>
-  <div class="stat s-est"><div class="sv">${fmtHKD(exp)}</div><div class="sl">預計回贈</div></div>
+  <div class="stat s-est"><div class="sv">${fmtHKD(anyCal?calExp:exp)}</div><div class="sl">${anyCal?'預計回贈·校準':'預計回贈'}</div></div>
   <div class="stat s-act"><div class="sv">${fmtHKD(act)}</div><div class="sl">實際回贈</div></div></div>
   <div class="fbar"><select id="f-card" data-change="rec-filter">${cardOpts}</select><select id="f-cat" data-change="rec-filter">${catOpts}</select></div>
   ${rows||'<div class="empty">本月未有記錄<br>可匯入銀行語句（CSV）或手動新增</div>'}
@@ -1187,7 +1261,11 @@ function txSheet(txId,pref){
   const catSel=S.data.categories.map(c=>`<option value="${c.id}" ${p.category===c.id?'selected':''}>${c.emoji} ${esc(c.name)}</option>`).join('');
   const cardSel=S.data.cards.map(c=>`<option value="${c.id}" ${p.cardId===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
   return `<div class="s-head">${tx?'編輯消費':'記錄消費'}</div>
-  ${!tx&&p.est!=null?`<div class="okbox">預計回贈：${fmtHKD(p.est)}（按現時規則計算）</div>`:''}
+  ${!tx&&p.est!=null?(()=>{
+    const c=p.cardId?credibilityFor(p.cardId):null;
+    const ca=c&&c.factor>0?p.est*c.factor:null;
+    return `<div class="okbox">預計回贈：${fmtHKD(ca!=null?ca:p.est)}${ca!=null?`（校準 · 官方規則 ${fmtHKD(p.est)} ×${c.pct}%，按你 ${c.n} 個月實際數據）`:'（按現時規則計算）'}</div>`;
+  })():''}
   <div class="frow"><div class="field"><label class="f-lbl">日期</label><input type="date" id="t-date" value="${p.date||todayStr()}"></div>
   <div class="field"><label class="f-lbl">金額 HK$</label><input type="number" id="t-amt" step="0.01" min="0" value="${p.amount||''}"></div></div>
   <div class="field"><label class="f-lbl">商戶／描述</label><input id="t-desc" placeholder="例如 美心" value="${esc(p.merchant||'')}"></div>
@@ -1228,16 +1306,21 @@ function analysisHTML(){
     return `${monNavHTML('an')}<div class="empty">本月未有數據${!hasDemo?'<br><br><button class="btn btn-primary btn-sm" data-action="demo-load">載入示例資料睇效果</button>':''}</div>`;
   }
   const byCard=new Map();
-  for(const t of txs){const c=byCard.get(t.cardId)||{spend:0,exp:0,act:0};c.spend+=t.amount;c.exp+=t.expectedReward||0;c.act+=t.actualReward||0;byCard.set(t.cardId,c);}
+  for(const t of txs){const c=byCard.get(t.cardId)||{spend:0,exp:0,act:0};c.spend+=t.amount;c.exp+=t.expectedReward||0;byCard.set(t.cardId,c);}
   for(const rm of rms){const c=byCard.get(rm.cardId)||{spend:0,exp:0,act:0};c.act+=rm.amount;byCard.set(rm.cardId,c);}
+  for(const c of S.data.credits||[]){if(c.kind==='rebate'&&String(c.date||'').slice(0,7)===m){const o=byCard.get(c.cardId)||{spend:0,exp:0,act:0};o.act+=c.amount||0;byCard.set(c.cardId,o);}}
   const perf=[...byCard.entries()].map(([id,c])=>({card:cardById(id),...c,cred:credibilityFor(id)})).sort((a,b)=>b.spend-a.spend);
   const perfRows=perf.map(p=>{
-    const diff=p.act-p.exp;
+    const calExp=p.cred&&p.cred.factor>0?p.exp*p.cred.factor:p.exp;
+    const diff=p.act-calExp;
+    const src=actualOfMonth(p.card?p.card.id:'_',m);
+    const srcTxt=[src.cr>0?'月結單CR '+fmtHKD(src.cr):'',src.rm>0?'手動 '+fmtHKD(src.rm):'',src.tx>0?'逐筆 '+fmtHKD(src.tx):''].filter(Boolean).join('＋')||'無實際數據';
     return `<div class="row" style="margin:8px 0 2px;box-shadow:none;border:1.5px solid var(--line)">
     <div class="row-ico"><span style="display:inline-block;width:13px;height:13px;border-radius:4px;background:${p.card?p.card.color||'#6C5CE7':'#999'};margin-top:9px"></span></div>
     <div class="row-main"><div class="row-t1" style="font-size:14px">${esc(p.card?p.card.name:'已刪卡片')}</div>
-    <div class="row-t2">消費 ${fmtHKD(p.spend)} · 可信度 ${p.cred?p.cred.pct+'%':'—'}</div></div>
-    <div class="row-amt"><span class="amt-dim" style="font-size:12px">預計 ${fmtHKD(p.exp)}</span>
+    <div class="row-t2">消費 ${fmtHKD(p.spend)} · 理論 ${fmtHKD(p.exp)} · 校準 ${p.cred&&p.cred.factor>0?'×'+p.cred.pct+'%':'—'}</div>
+    <div class="row-t2">實際來源：${srcTxt}${p.cred&&p.cred.n?'（'+p.cred.n+' 個月數據）':''}</div></div>
+    <div class="row-amt"><span class="amt-dim" style="font-size:12px">校準 ${fmtHKD(calExp)}</span>
     <small class="${diff>=0?'amt-good':'amt-bad'}">實際 ${fmtHKD(p.act)}（${diff>=0?'+':'−'}${fmtHKD(Math.abs(diff))}）</small></div></div>`;
   }).join('');
   const byCat={};
@@ -1252,7 +1335,8 @@ function analysisHTML(){
   const months=[];for(let i=5;i>=0;i--)months.push(monthAdd(m,-i));
   const stats=months.map(mm=>{let e=0,a=0;
     for(const t of txsOfMonth(mm)){e+=t.expectedReward||0;a+=t.actualReward||0;}
-    for(const rm of S.data.rewardMonths.filter(r=>r.month===mm))a+=rm.amount;
+    for(const r of S.data.rewardMonths){if(r.month===mm&&!r.demo)a+=r.amount||0;}
+    for(const c of S.data.credits||[]){if(c.kind==='rebate'&&!c.demo&&String(c.date||'').slice(0,7)===mm)a+=c.amount||0;}
     return {mm,e,a};});
   const maxT=Math.max(1,...stats.map(s=>Math.max(s.e,s.a)));
   const trend=stats.map(s=>`<div class="bar-row"><div class="bar-lbl"><span>${monthLabel(s.mm).slice(5)}</span>
@@ -1270,9 +1354,11 @@ function analysisHTML(){
   }).join('');
   return `${monNavHTML('an')}
   <section class="panel"><h2 class="p-title">卡片表現</h2>
-  <p class="p-sub">預計 vs 實際 · 可信度 = 實際 ÷ 預計（按金額加權）</p>${perfRows||'<div class="mini">未有數據</div>'}</section>
+  <p class="p-sub">差異以「校準預計」為基準（實際 − 校準預計）。校準係數 = 該卡歷史每月「實際入賬 ÷ 當時規則預計」加權平均，實際數據優先於官方理論；匯入愈多月結單，估算愈準。</p>
+  <p class="p-sub">實際入賬來源：月結單 CR 自動辨認＋手動月結＋逐筆填寫。回贈一般遲一個月入賬屬正常。</p>${perfRows||'<div class="mini">未有數據</div>'}</section>
   <section class="panel"><h2 class="p-title">分類消費</h2>${catBars||'<div class="mini">未有數據</div>'}</section>
-  <section class="panel"><h2 class="p-title">近 6 個月回贈走勢</h2>${trend}</section>
+  <section class="panel"><h2 class="p-title">近 6 個月回贈走勢</h2>
+  <p class="p-sub">預計按消費當時有效的規則測算（規則變更不追溯舊帳單）；實際按入賬月份計。</p>${trend}</section>
   ${diffRows?`<div class="alt-head">差異明細（實際 − 預計 ≥ HK$1）</div>${diffRows}`:''}`;
 }
 
@@ -1324,8 +1410,8 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</section>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.5 · 回贈規則自動同步（碌邊張）</span></div>
-  <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；自行修改過規則的卡片不會被覆蓋。計算結果僅供個人參考。</p></section>`;
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.6 · 回贈校準引擎＋規則版本化</span></div>
+  <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
   const c=catId?catById(catId):null;
