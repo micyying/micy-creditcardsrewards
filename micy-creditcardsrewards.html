@@ -347,6 +347,61 @@ const SEED_CARDS=[
   ]}
 ];
 
+/* ---- 真實卡片：以迷你卡面（SVG）做圖標 ---- */
+function faceURI(o){
+  const svg=`<svg xmlns='http://www.w3.org/2000/svg' width='300' height='190'>
+<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='${o.c1}'/><stop offset='1' stop-color='${o.c2}'/></linearGradient></defs>
+<rect width='300' height='190' rx='18' fill='url(#g)'/>
+<rect x='0' y='0' width='300' height='10' fill='${o.trim||'rgba(255,255,255,0.25)'}'/>
+<text x='24' y='48' font-family='Arial,Helvetica,sans-serif' font-weight='700' font-size='20' fill='${o.t1||'#fff'}'>${o.bank}</text>
+<text x='24' y='70' font-family='Arial,Helvetica,sans-serif' font-size='13' fill='${o.t2||'#ffffffcc'}' letter-spacing='1.5'>${o.bankEn}</text>
+<rect x='24' y='96' width='46' height='33' rx='6' fill='${o.chip||'#E8D48B'}'/>
+<rect x='33' y='105' width='28' height='15' rx='2.5' fill='none' stroke='${o.chipL||'#9a7a2f'}' stroke-width='1.6'/>
+<g fill='none' stroke='${o.t2||'#ffffffcc'}' stroke-width='2' opacity='0.85'><path d='M254 44 a11 11 0 1 1 10 0'/><path d='M258 40 a16 16 0 1 1 12 0'/></g>
+<circle cx='252' cy='150' r='20' fill='${o.net||'rgba(255,255,255,0.12)'}'/>
+<circle cx='262' cy='150' r='7' fill='none' stroke='${o.t2||'#fff'}' stroke-width='1.5'/>
+<text x='24' y='158' font-family='Arial,Helvetica,sans-serif' font-weight='800' font-size='26' letter-spacing='1' fill='${o.t1||'#fff'}'>${o.label}</text>
+<text x='24' y='178' font-family='Arial,Helvetica,sans-serif' font-size='11' fill='${o.t2||'#ffffffcc'}' letter-spacing='2'>${o.tag||o.label.toUpperCase()}</text>
+</svg>`;
+  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+}
+const REAL_CARDS=[
+ {id:'card-boc-chill',name:'中銀 Chill 卡',bank:'中銀',color:'#00A58E',baseRate:0.004,demo:false,rules:[],
+  note:'請填入 Chill 卡的實際回贈條款',face:faceURI({c1:'#02C8A8',c2:'#017E6D',bank:'中銀 BANK OF CHINA',bankEn:'BOC',label:'CHILL',tag:'DINING / EASY CASH',chip:'#DFF6F0',chipL:'#4FAa9c'})},
+ {id:'card-boc-go',name:'中銀 GO 卡 白金版',bank:'中銀',color:'#0B4EA2',baseRate:0.01,demo:false,rules:[],
+  note:'請填入 GO 卡 白金版的實際回贈條款',face:faceURI({c1:'#1A6FDC',c2:'#7FB1F0',bank:'中銀 BANK OF CHINA',bankEn:'BOC',label:'GO',tag:'PLATINUM',chip:'#DCE8FB',chipL:'#4A6FA8'})},
+ {id:'card-boc-go-dia',name:'中銀 GO 卡 鑽石版',bank:'中銀',color:'#1F2233',baseRate:0.01,demo:false,rules:[],
+  note:'請填入 GO 卡 鑽石版的實際回贈條款',face:faceURI({c1:'#2A2E45',c2:'#10121C',bank:'中銀 BANK OF CHINA',bankEn:'BOC',label:'GO',tag:'DIAMOND',chip:'#E8D48B',chipL:'#9a7a2f',t2:'#e9c96b',net:'rgba(212,175,55,0.35)'})},
+ {id:'card-sc-cathay',name:'渣打 國泰 Mastercard',bank:'渣打',color:'#005C53',baseRate:0.005,demo:false,rules:[],
+  note:'請填入國泰卡（渣打）的實際回贈條款',face:faceURI({c1:'#007E6E',c2:'#00494A',bank:'STANDARD CHARTERED',bankEn:'渣打',label:'CATHAY',tag:'MARCOPOLO',chip:'#DFF6EE',chipL:'#2E8E7C',net:'#00A37E'})},
+ {id:'card-mox',name:'Mox 卡（無年費虛擬卡）',bank:'Mox',color:'#FF5733',baseRate:0.01,demo:false,rules:[],
+  note:'Mox 單一卡面；請填入實際回贈條款',face:faceURI({c1:'#FF5A35',c2:'#E33D2C',bank:'Mox',bankEn:'mox credit',label:'m o x',tag:'CASHBACK 2%',chip:'#FFD9CC',chipL:'#C0462B'})},
+ {id:'card-aeon-waku',name:'AEON Wakuwaku 卡',bank:'AEON',color:'#D72549',baseRate:0.005,demo:false,rules:[],
+  note:'請填入 Wakuwaku 卡的實際回贈條款',face:faceURI({c1:'#E03254',c2:'#A30F30',bank:'AEON',bankEn:'AEON CARD',label:'WAKUWAKU',tag:'日日 3% 賞',chip:'#FBDFE6',chipL:'#B04460'})},
+ {id:'card-aeon-purple',name:'AEON Purple Card (Visa)',bank:'AEON',color:'#6B2FA0',baseRate:0.005,demo:false,rules:[],
+  note:'請填入 AEON Purple（Visa）的實際回贈條款',face:faceURI({c1:'#7B3FBF',c2:'#3A1060',bank:'AEON',bankEn:'AEON CARD',label:'PURPLE',tag:'VISA',chip:'#E7DDF6',chipL:'#6A3FA8',net:'#F1B32B'})},
+ {id:'card-hsbc-red',name:'滙豐 Red 卡',bank:'滙豐',color:'#D90429',baseRate:0.004,demo:false,rules:[],
+  note:'請填入 Red 卡的實際回贈條款',face:faceURI({c1:'#E2263C',c2:'#96091E',bank:'HSBC',bankEn:'滙豐 HSBC',label:'RED',tag:'CASHBACK',chip:'#FBE3E6',chipL:'#B04460'})},
+ {id:'card-hsbc-pulse',name:'滙豐 Pulse 卡',bank:'滙豐',color:'#6A11CB',baseRate:0.01,demo:false,rules:[],
+  note:'請填入 Pulse 卡的實際回贈條款',face:faceURI({c1:'#6A11CB',c2:'#C9184A',bank:'HSBC',bankEn:'滙豐 HSBC',label:'PULSE',tag:'REWARDS',chip:'#F0E0FA',chipL:'#6A4FA8'})}
+];
+function ensureRealCards(){
+  if(!S.data||!S.data.cards)return;
+  const REMOVE=['card-sc-smart','card-citi-cb']; /* 舊示例卡（非你名下）移除 */
+  let changed=false;
+  for(const c of REAL_CARDS){
+    const ex=S.data.cards.find(x=>x.id===c.id);
+    if(ex){
+      if(ex.demo){ex.demo=false;changed=true;}                  /* 舊示例卡升級為真實卡 */
+      if(!ex.face){ex.face=c.face;ex.name=c.name;ex.bank=c.bank;ex.color=c.color;changed=true;}
+    }else{S.data.cards.push(JSON.parse(JSON.stringify(c)));changed=true;}
+  }
+  const n=S.data.cards.length;
+  S.data.cards=S.data.cards.filter(x=>REMOVE.indexOf(x.id)<0);
+  if(S.data.cards.length!==n)changed=true;
+  if(changed)saveLocal();
+}
+
 /* ============ state ============ */
 const LS_DATA='micy_shuana_data_v1', LS_SYNC='micy_shuana_sync_v1', LS_BAK='micy_shuana_baks_v1';
 const S={data:null};
@@ -891,7 +946,7 @@ function cardsHTML(){
   const hasDemo=S.data.cards.some(c=>c.demo);
   const rows=S.data.cards.map(c=>`
   <div class="row" data-action="card-edit" data-id="${c.id}">
-  <div class="row-ico"><span style="display:inline-block;width:15px;height:15px;border-radius:5px;background:${c.color||'#6C5CE7'};margin-top:8px"></span></div>
+  <div class="row-ico">${c.face?`<img src="${c.face}" alt="${esc(c.name)}" style="width:46px;height:29px;border-radius:5px;margin-top:3px">`:`<span style="display:inline-block;width:15px;height:15px;border-radius:5px;background:${c.color||'#6C5CE7'};margin-top:8px"></span>`}</div>
   <div class="row-main"><div class="row-t1">${esc(c.name)} ${c.demo?'<span class="b b-demo">示例</span>':''}</div>
   <div class="row-t2">${esc(c.bank||'')} · 基本回贈 ${fmtPct(c.baseRate||0)} · ${(c.rules||[]).length} 條規則</div></div>
   <div class="row-amt amt-dim" style="font-size:12px">編輯</div></div>`).join('');
@@ -985,6 +1040,9 @@ function recordsHTML(){
     <div class="row-amt ${hasAct?'amt-good':'amt-dim'}">${fmtHKD(t.amount)}<small>${hasAct?'實際 '+fmtHKD(t.actualReward):'預計 '+fmtHKD(t.expectedReward)}</small></div></div>`;
   }).join('');
   return `${tabsHTML('tx')}${monNavHTML('rec')}
+  <section class="panel" style="display:flex;gap:10px">
+  <button class="btn btn-primary" style="flex:1.8" data-action="pdft-open">匯入月結單 PDF</button>
+  <button class="btn btn-ghost" style="flex:1" data-action="tx-add">新增消費</button></section>
   <div class="stat-strip">
   <div class="stat"><div class="sv">${fmtHKD(spend)}</div><div class="sl">總消費</div></div>
   <div class="stat s-est"><div class="sv">${fmtHKD(exp)}</div><div class="sl">預計回贈</div></div>
@@ -992,10 +1050,7 @@ function recordsHTML(){
   <div class="fbar"><select id="f-card" data-change="rec-filter">${cardOpts}</select><select id="f-cat" data-change="rec-filter">${catOpts}</select></div>
   ${rows||'<div class="empty">本月未有記錄<br>可匯入銀行語句（CSV）或手動新增</div>'}
   <section class="panel" style="display:flex;gap:10px">
-  <button class="btn btn-primary" style="flex:1" data-action="tx-add">新增消費</button>
-  <button class="btn btn-ghost" style="flex:1" data-action="import-open">匯入語句（CSV）</button></section>
-  <section class="panel" style="display:flex;gap:10px">
-  <button class="btn btn-primary" style="flex:1" data-action="pdft-open">匯入月結單 PDF</button>
+  <button class="btn btn-ghost" style="flex:1" data-action="import-open">匯入語句（CSV）</button>
   <button class="btn btn-ghost" style="flex:1" data-action="cred-open">回贈／還款</button></section>`;
 }
 function txSheet(txId,pref){
@@ -1142,7 +1197,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</section>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.0 · 支援多銀行月結單 PDF 導入</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.1 · 支援多銀行月結單 PDF 導入</span></div>
   <p class="mini" style="margin-top:8px">內建卡片回贈規則為示例資料，並非銀行官方條款，請自行核實及更新；計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -1330,9 +1385,15 @@ function parseBOC(text,year,stmtMon){
     const desc=(mm[5]||'').trim(),amount=num(mm[6]),cr=!!mm[7];
     if(/=\s*$/.test(desc))continue; /* 積分回贈行（如 GP Rebate ...= 1314）非港幣金額 */
     let kind='tx';
-    if(cr){if(/PAYMENT|THANK|還款|REPAY/i.test(desc))kind='payment';
-      else if(/REBATE|CASH REBATE|回贈|OFFSET|POINTS?/i.test(desc))kind='rebate';
-      else kind='credit';}
+    const incTx=/CASH ?REBATE|CASHBACK|回贈|REBATE|OFFSET|GO ?MERCHANT|POINTS?/i;
+    if(cr){ /* 所有帶 CR 的都是收入 */
+      if(/PAYMENT|THANK|還款|REPAY/i.test(desc))kind='payment';
+      else if(incTx.test(desc))kind='rebate';
+      else kind='credit'; /* Tmall 等退貨退款 → 收入 */
+    }
+    else if(incTx.test(desc)){ /* GO卡「x% CASH REBATE (GO MERCHANT)」現金回贈（未標 CR 亦為收入） */
+      kind='rebate';
+    }
     rows.push({date,amount,merchant:cleanMerch(desc),online:guessOnline(desc),category:guessCategory(desc),kind});
   }
   return rows;
@@ -1434,9 +1495,12 @@ function guessCard(text){
   if(/GO/.test(U)&&(/中銀|BOC|銀聯/i.test(U)))tags.push('GO');
   if(/CATHAY|國泰/i.test(U))tags.push('CATHAY','國泰');
   if(/渣打|STANDARD CHARTERED/i.test(U))tags.push('渣打','BANK');
+  if(/PULSE|HSBC UNIONPAY/i.test(U))tags.push('PULSE');
   if(/HSBC|滙豐|RED|RC/i.test(U))tags.push('RED','HSBC');
   if(/MOX|\bMOX\b|Mox Credit/i.test(U))tags.push('MOX');
-  if(/AEON|WAKUWAKU/i.test(U))tags.push('AEON');
+  if(/WAKUWAKU/i.test(U))tags.push('WAKUWAKU');
+  if(/PURPLE|AEON/i.test(U)&&/VISA/i.test(U))tags.push('AEON','PURPLE');
+  if(/AEON/i.test(U))tags.push('AEON');
   for(const t of tags){const c=cards.find(c=>c.name.toUpperCase().indexOf(t)>=0);if(c)return c.id;}
   return null;
 }
@@ -1488,21 +1552,36 @@ async function aiChat(prompt){
   return (j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
 }
 function pdfReviewRows(rows){
+  const open=(IMPPDF.openEdits=IMPPDF.openEdits||{});
   return rows.map((r,i)=>{
-    const catOpts=S.data.categories.map(c=>`<option value="${c.id}" ${r.category===c.id?'selected':''}>${c.emoji} ${esc(c.name)}</option>`).join('');
-    const cardOpts=S.data.cards.map(c=>`<option value="${c.id}" ${r.cardId===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
-    const onlOpts=`<option value="" ${r.online==null?'selected':''}>不限</option><option value="1" ${r.online===true?'selected':''}>網上</option><option value="0" ${r.online===false?'selected':''}>門市</option>`;
     const kd=KINDS[r.kind||'tx']||KINDS.tx;
-    return `<div class="row" style="flex-direction:column;align-items:stretch">
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="font-size:12px;color:#fff;background:${kd.bg};border-radius:8px;padding:2px 9px">${kd.n}</span>
-      <input style="flex:0 0 118px;min-width:118px" type="date" value="${r.date||''}" data-change="pdft-upd" data-i="${i}" data-f="date">
-      <input style="flex:1;min-width:90px" type="number" step="0.01" value="${num(r.amount)}" data-change="pdft-upd" data-i="${i}" data-f="amount"></div>
-    <input style="margin-top:6px" type="text" value="${esc(r.merchant||'')}" placeholder="商家名稱" data-change="pdft-upd" data-i="${i}" data-f="merchant">
-    <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
-      <select style="flex:1.2;min-width:110px" data-change="pdft-upd" data-i="${i}" data-f="category">${catOpts}</select>
-      <select style="flex:1;min-width:100px" data-change="pdft-upd" data-i="${i}" data-f="card">${cardOpts}</select>
-      <select style="flex:0 0 88px" data-change="pdft-upd" data-i="${i}" data-f="online">${onlOpts}</select></div></div>`;
+    if(open[i]){ /* 單筆編輯模式：完整輸入 + 完成 */
+      const catOpts=S.data.categories.map(c=>`<option value="${c.id}" ${r.category===c.id?'selected':''}>${c.emoji} ${esc(c.name)}</option>`).join('');
+      const cardOpts=S.data.cards.map(c=>`<option value="${c.id}" ${r.cardId===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
+      const onlOpts=`<option value="" ${r.online==null?'selected':''}>不限</option><option value="1" ${r.online===true?'selected':''}>網上</option><option value="0" ${r.online===false?'selected':''}>門市</option>`;
+      return `<div class="row" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:#fff;background:${kd.bg};border-radius:8px;padding:2px 9px">${kd.n}</span>
+        <input style="flex:0 0 118px;min-width:118px" type="date" value="${r.date||''}" data-change="pdft-upd" data-i="${i}" data-f="date">
+        <input style="flex:1;min-width:90px" type="number" step="0.01" value="${num(r.amount)}" data-change="pdft-upd" data-i="${i}" data-f="amount"></div>
+      <input style="margin-top:6px" type="text" value="${esc(r.merchant||'')}" placeholder="商家名稱" data-change="pdft-upd" data-i="${i}" data-f="merchant">
+      <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <select style="flex:1.2;min-width:110px" data-change="pdft-upd" data-i="${i}" data-f="category">${catOpts}</select>
+        <select style="flex:1;min-width:100px" data-change="pdft-upd" data-i="${i}" data-f="card">${cardOpts}</select>
+        <select style="flex:0 0 88px" data-change="pdft-upd" data-i="${i}" data-f="online">${onlOpts}</select></div>
+      <div style="margin-top:8px;text-align:right"><button class="btn btn-sm" data-action="pdft-edit" data-i="${i}">✔ 完成編輯</button></div></div>`;
+    }
+    /* 精簡模式：一行一筆 + 修改按鈕 */
+    const cat=catById(r.category),card=cardById(r.cardId);
+    const meta=[fmtDateFull(r.date),cat?(cat.emoji+' '+esc(cat.name)):'未分類'];
+    if(card)meta.push(esc(card.name));
+    if(r.online===true)meta.push('網上');else if(r.online===false)meta.push('門市');
+    const amtGood=(r.kind==='rebate'||r.kind==='credit');
+    return `<div class="row" style="align-items:center">
+    <div class="row-ico" style="background:${kd.bg};color:#fff;border-radius:8px;font-size:13px;font-weight:700;line-height:30px">${kd.n.slice(0,1)}</div>
+    <div class="row-main"><div class="row-t1" style="white-space:normal;overflow:visible;text-overflow:clip;word-break:break-all;line-height:1.35" title="${esc(r.merchant||'')}">${esc(r.merchant||'(空白)')}</div><div class="row-t2">${meta.join(' · ')}</div></div>
+    <div class="row-amt ${amtGood?'amt-good':''}">${fmtHKD(num(r.amount))}<small>${kd.n}</small></div>
+    <button class="btn btn-sm btn-ghost" style="flex:none;margin-left:8px;white-space:nowrap" data-action="pdft-edit" data-i="${i}">修改</button></div>`;
   }).join('');
 }
 function pdfImportSheet(step){
@@ -1521,7 +1600,7 @@ function pdfImportSheet(step){
   const kinds=IMPPDF.rows.reduce((m,r)=>{const k=r.kind||'tx';m[k]=(m[k]||0)+1;return m;},{});
   const counts=['tx','rebate','payment','credit'].filter(k=>kinds[k]).map(k=>KINDS[k].n+' '+kinds[k]).join(' · ');
   return `<div class="s-head">確認月結單交易</div>
-  <p class="s-sub">共 ${IMPPDF.rows.length} 筆 · ${counts||'—'}。逐筆可改日期／金額／商家／分類／卡片／網上。你在這裡改的分類會被記住，下次同名商家自動沿用。回贈／還款／退款不進入「刷哪張」推薦。</p>
+  <p class="s-sub">共 ${IMPPDF.rows.length} 筆 · ${counts||'—'}。已自動分類，<b>有問題再逐筆點「修改」編輯</b>（日期／金額／商家／分類／卡片／網上）；你在這裡改的分類會被記住，下次同名商家自動沿用。回贈／還款／退款不進入「刷哪張」推薦。</p>
   ${aiConfigured()?`<div style="margin:6px 0"><button class="btn btn-primary btn-block" data-action="pdft-ai">✨ AI 標記全部消費</button></div>`:''}
   ${pdfReviewRows(IMPPDF.rows)}
   <div class="s-actions">
@@ -1558,8 +1637,8 @@ const ACTIONS={
 
   'w-start':()=>{
     mutate(d=>{d.settings.ready=true;
-      if(!d.cards.length)d.cards.push(...JSON.parse(JSON.stringify(SEED_CARDS)));});
-    toast('已載入示例卡，請到「卡片」修改為你的真實卡','ok');
+      if(!d.cards.length)d.cards.push(...JSON.parse(JSON.stringify(REAL_CARDS)));});
+    toast('已加入你的卡片，請到「卡片」補充分類回贈規則','ok');
   },
   'w-enter':()=>openSheet(syncEnterHTML()),
 
@@ -1860,6 +1939,7 @@ const ACTIONS={
     IMPPDF.rows=rows;openSheet(pdfImportSheet(2));toast('擷取到 '+rows.length+' 筆待確認','ok');
   },
   'pdft-back':()=>openSheet(pdfImportSheet(1)),
+  'pdft-edit':(d)=>{const o=(IMPPDF.openEdits=IMPPDF.openEdits||{});const i=+d.i;if(o[i])delete o[i];else o[i]=true;openSheet(pdfImportSheet(2));},
   'pdft-upd':(d,t)=>{const r=IMPPDF.rows[+d.i];if(!r)return;const f=d.f,v=t.value;
     if(f==='amount')r.amount=num(v);
     else if(f==='online')r.online=v===''?null:v==='1';
@@ -1890,6 +1970,10 @@ const ACTIONS={
     if(!IMPPDF.rows.length){toast('沒有可匯入的交易','err');return;}
     let ok=0,cred=0,skip=0;
     mutate(dd=>{
+      /* 導入真實月結單後，自動清除示例（demo）交易與回贈紀錄 */
+      dd.transactions=(dd.transactions||[]).filter(t=>!t.demo);
+      dd.credits=(dd.credits||[]).filter(c=>!c.demo);
+      dd.rewardMonths=(dd.rewardMonths||[]).filter(r=>!r.demo);
       for(const r of IMPPDF.rows){
         const amount=num(r.amount);
         const date=(typeof r.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(r.date))?r.date:todayStr();
@@ -1959,6 +2043,7 @@ document.addEventListener('keydown',e=>{
 /* ============ 啟動 ============ */
 function boot(){
   load();
+  ensureRealCards();
   loadSyncCfg();
   render();
   if(SYNC.cfg){
