@@ -668,6 +668,11 @@ function disconnectSync(){
   toast('已中斷雲端同步（本機資料保留）');
   render(true);
 }
+/* 本機「好記名稱」：只存於此設備 localStorage，不進同步、不上傳、不寫入程式 */
+const LS_SYNC_ALIAS='micy_shuana_aliases_v1';
+function getSyncAliasMap(){try{return JSON.parse(localStorage.getItem(LS_SYNC_ALIAS)||'{}')}catch(e){return {}}}
+function getSyncAlias(name){const m=getSyncAliasMap();return name&&m[name]?m[name]:null;}
+function saveSyncAlias(name,code){if(!name||!code)return;const m=getSyncAliasMap();m[String(name)]=code;localStorage.setItem(LS_SYNC_ALIAS,JSON.stringify(m));}
 function setSyncState(st,msg){
   SYNC.state=st;SYNC.errMsg=msg||'';
   const el=document.querySelector('.hdr-sync');
@@ -1177,11 +1182,13 @@ function importSheet(step){
 /* ---- 同步碼 sheet ---- */
 function syncEnterHTML(){
   return `<div class="s-head">輸入同步碼</div>
-  <p class="s-sub">在另一設備（設定 → 雲端同步）複製同步碼，貼到這裡連接。</p>
+  <p class="s-sub">貼上你在另一設備複製的同步碼即可連接；若此設備曾用「好記名稱」記住過，也可直接輸入該名稱。</p>
   <div class="field"><label class="f-lbl">同步碼</label>
   <textarea id="se-code" placeholder="micy-shuana-xxxx:0123abcd…" style="min-height:80px"></textarea></div>
+  <div class="field"><label class="f-lbl">記為好記名稱（選填 · 僅存此設備）</label>
+  <input id="se-alias" placeholder="例如：my-sync-code"></div>
   <div class="s-actions"><button class="btn btn-primary" data-action="sync-enter-do">連接</button></div>
-  <p class="mini" style="margin-top:10px">連接後以下載雲端資料為準；本機原有資料會自動保存快照。</p>`;
+  <p class="mini" style="margin-top:10px">連接後以下載雲端資料為準；本機原有資料會自動保存快照。「好記名稱」只存於這台設備，方便下次免貼長同步碼，不會上傳或寫入程式。</p>`;
 }
 function syncCreateHTML(){
   return `<div class="s-head">建立同步碼</div>
@@ -1449,11 +1456,16 @@ const ACTIONS={
       toast(e.message||'建立失敗','err');}
   },
   'sync-enter-do':async()=>{
-    const code=$('se-code').value;
-    if(!code.trim()){toast('請輸入同步碼','err');return;}
+    let code=($('se-code').value||'').trim();
+    const alias=($('se-alias')?$('se-alias').value:'').trim();
+    if(!code){code=getSyncAlias(alias)||'';
+      if(!code){toast('請輸入同步碼或有效的好記名稱','err');return;}
+    }else if(getSyncAlias(code)){code=getSyncAlias(code);}
+    if(!code){toast('請輸入同步碼','err');return;}
     toast('連接中…');
     try{
       const r=await enterSync(code);
+      if(alias&&alias!==code)saveSyncAlias(alias,code);
       closeSheet();
       if(r&&r.tookOver)toast('已連接，並以本機資料建立雲端','ok');
       else toast('已連接雲端同步','ok');
