@@ -1225,9 +1225,10 @@ function recordsHTML(){
       <div class="row-t2">${monthLabel(rm.month)} 實際入賬${rm.note?' · '+esc(rm.note):''}</div></div>
       <div class="row-amt amt-good">${fmtHKD(rm.amount)}</div></div>`;
     }).join('');
-    return `${tabsHTML('rm')}${monNavHTML('rec')}
-    ${rows||'<div class="empty">本月未有月結回贈記錄<br>銀行月結單出咗之後，在這裡記錄實際入賬總額</div>'}
-    <section class="panel"><button class="btn btn-primary btn-block" data-action="rm-add">新增月結回贈</button></section>`;
+    return `${tabsHTML('rm')}
+    <section class="panel" style="margin-bottom:2px"><button class="btn btn-primary btn-block" data-action="rm-add">新增月結回贈</button></section>
+    ${monNavHTML('rec')}
+    ${rows||'<div class="empty">本月未有月結回贈記錄<br>銀行月結單出咗之後，在這裡記錄實際入賬總額</div>'}`;
   }
   const txs=txsOfMonth(m).filter(t=>(UI.recCard==='all'||t.cardId===UI.recCard)&&(UI.recCat==='all'||t.category===UI.recCat))
     .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
@@ -2195,7 +2196,7 @@ const ACTIONS={
   },
   'pdft-save':()=>{
     if(!IMPPDF.rows.length){toast('沒有可匯入的交易','err');return;}
-    let ok=0,cred=0,skip=0;
+    let ok=0,reb=0,cred=0,skip=0;
     mutate(dd=>{
       /* 導入真實月結單後，自動清除示例（demo）交易與回贈紀錄 */
       dd.transactions=(dd.transactions||[]).filter(t=>!t.demo);
@@ -2212,11 +2213,18 @@ const ACTIONS={
         if(kind==='tx'){
           const ctx={date,amount,category:r.category||'other',online:r.online===true};
           if(addTxFromCtx(ctx,cardId,merchant,{})){ok++;rememberLabel(dd,merchant,ctx.category,ctx.online,'manual');}
+        }else if(kind==='rebate'){
+          /* 月結單的回贈 → 彙入「回贈月結」，同一卡同一月自動累加為實際入賬總額 */
+          const month=date.slice(0,7);
+          const ex=dd.rewardMonths.find(x=>x.cardId===cardId&&x.month===month);
+          if(ex){ex.amount=r2((ex.amount||0)+amount);}
+          else{dd.rewardMonths.push({id:uid(),cardId,month,amount:r2(amount),note:'月結單匯入'});}
+          reb++;
         }else{dd.credits.push({id:uid(),date,cardId,amount:r2(amount),merchant,kind,note:''});cred++;}
       }
     });
     closeSheet();
-    toast('已匯入消費 '+ok+' 筆、回贈/還款 '+cred+' 筆'+(skip?'（略過 '+skip+' 筆）':''),'ok');
+    toast('已匯入消費 '+ok+' 筆、月結回贈 '+reb+' 筆、還款/退款 '+cred+' 筆'+(skip?'（略過 '+skip+' 筆）':''),'ok');
     UI.screen='records';render();
   },
   'cred-open':()=>openSheet(creditsSheet()),
