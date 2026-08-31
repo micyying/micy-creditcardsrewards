@@ -1572,7 +1572,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</details>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.10 · AI連線診斷：失敗一鍵重試＋測試連線</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.11 · AI直接改單：對話可改金額/日期/卡片/類型、刪除或新增整行</span></div>
   <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -2242,6 +2242,7 @@ function aiNetErr(e,base){
 /* ============ AI 對話標記助手：跟用戶對話修正標記，有記憶（對話歷史）與學習（知識庫） ============ */
 function aiChatSysPrompt(){
   const cats=S.data.categories.map(c=>c.id+'('+c.name+')').join('、');
+  const cards=(S.data.cards||[]).map(c=>c.id+'('+c.name+')').join('、');
   const rows=IMPPDF.rows.map((r,i)=>{
     const cat=catById(r.category);const kd=KINDS[r.kind||'tx']||KINDS.tx;const cd=cardById(r.cardId);
     return '#'+i+' ['+kd.n+(cd?' · '+cd.name:'')+'] '+(r.merchant||'(空白)')+' HK$'+num(r.amount).toFixed(2)
@@ -2250,13 +2251,32 @@ function aiChatSysPrompt(){
   const k=(S.data.knowledge||[]).slice(-80).map(r=>{
     const c=catById(r.category);return normMerchant(r.pattern)+'→'+(c?c.name:r.category)+(r.online?'（網上）':r.online===false?'（門市）':'');
   }).join('；');
-  return '你是「Micy刷哪張」的消費標記助手。用戶正在核對月結單交易的分類標記，會告訴你哪裡標錯了，你要幫忙修正並學習他的偏好。'
-    +'所有回覆請用繁體中文。\n可用分類：'+cats+'\n\n目前待確認的交易（i 即 #編號）：\n'+(rows||'（無）')
+  const sm=aiStmtMonth();
+  return '你是「Micy刷哪張」的消費標記助手。用戶正在核對月結單交易，會告訴你哪裡錯了，你要直接修改交易內容並學習他的偏好。'
+    +'所有回覆請用繁體中文。\n可用分類：'+cats+'\n可用卡片：'+cards
+    +'\n結單月份：'+(sm?sm:'（未知，日期請直接問用戶或用今天）')
+    +'\n\n目前待確認的交易（i 即 #編號）：\n'+(rows||'（無）')
     +'\n\n用戶的學習記憶（之後同名商家會自動沿用）：'+(k||'（暫無）')
     +'\n\n回覆規則：只輸出一個 JSON 物件（不要 markdown 代碼塊、不要其他文字），格式：'
-    +'{\"say\":\"給用戶看的回覆\",\"fix\":[{\"i\":編號,\"category\":\"分類id\",\"online\":true/false/null}],\"learn\":[{\"pattern\":\"商家關鍵字\",\"category\":\"分類id\",\"online\":true/false}],\"forget\":[\"要忘記的商家關鍵字\"]}'
-    +'\n說明：fix 用戶指正的錯誤時填 i（對應 #編號）與正確 category/online；該商家之後應該自動沿用就把 learn 填上（pattern 取商家名最具代表性的字串，例如 MCDONALD、KOWLOON MOTO，之後會模糊比對）；用戶要你忘記某規則就填 forget；只是回答問題不修改時，fix/learn/forget 填空陣列。'
-    +'線上/實體判斷：含網購平台、App Store、訂票網等為 online:true；實體店、餐廳、交通工具為 false。';
+    +'{\"say\":\"給用戶看的回覆\",\"fix\":[{\"i\":編號,\"category\":\"分類id\",\"online\":true/false/null,\"merchant\":\"新商家名\",\"date\":\"YYYY-MM-DD\",\"amount\":金額數字,\"kind\":\"tx/rebate/payment/credit\",\"card\":\"卡片id或名稱\"}],\"del\":[要刪除的編號],\"add\":[{\"kind\":\"tx/rebate/payment/credit\",\"date\":\"YYYY-MM-DD\",\"amount\":金額,\"merchant\":\"商家\",\"category\":\"分類id\",\"online\":true/false,\"card\":\"卡片id或名稱\"}],\"learn\":[{\"pattern\":\"商家關鍵字\",\"category\":\"分類id\",\"online\":true/false}],\"forget\":[\"要忘記的商家關鍵字\"]}'
+    +'\n說明：'
+    +'\n· fix 可改任何欄位，只填要改的（其餘省略）；i 對應 #編號。金額一律 HK$ 數字（如 15.28）。kind：tx=消費、rebate=回贈、payment=還款、credit=退款。'
+    +'\n· del：用戶說某筆「不要抓／不要匯入／刪掉」時填該筆編號。'
+    +'\n· add：用戶要新增一行時填（如積分獎賞、手工補一筆）。AEON 積分換算：250 分＝HK$1（25000分≈HK$100）；WAKU COIN：1 coin＝HK$1。日期用結單月份內的日期（結帳日附近），不知就填該月 1 日。'
+    +'\n· learn：該商家之後應自動沿用就填（pattern 取商家名最具代表性的字串，例如 MCDONALD、KOWLOON MOTO，之後模糊比對）；forget：用戶要忘記某規則時填。'
+    +'\n· 只回答問題不修改時，fix/del/add/learn/forget 全填空陣列。'
+    +'\n線上/實體判斷：含網購平台、App Store、訂票網等為 online:true；實體店、餐廳、交通工具為 false。';
+}
+/* 結單月份（YYYY-MM）：從行指紋或 PDF 指紋推，供 AI 填日期、也供新增行預設 */
+function aiStmtMonth(){
+  const cand=[];
+  if(IMPPDF.pdfs&&IMPPDF.pdfs.length)cand.push(IMPPDF.pdfs[0].fp);
+  if(IMPPDF.rows&&IMPPDF.rows.length)cand.push(IMPPDF.rows[0].fp);
+  for(const c of cand){
+    const m=/(?:^|\|)(\d{4})-(\d{2})/.exec(String(c||''));
+    if(m)return m[1]+'-'+m[2];
+  }
+  return '';
 }
 function aiParseReply(res){
   const raw=String(res||'').trim().replace(/```json|```/g,'');
@@ -2264,20 +2284,68 @@ function aiParseReply(res){
   if(m){try{const o=JSON.parse(m[0]);if(o&&typeof o==='object')return o;}catch(e){}}
   return {say:raw||'（AI 沒有回應）',fix:[],learn:[],forget:[]};   /* 非 JSON → 當純文字對話 */
 }
+/* 卡片解析：AI 給 id 或名稱（可部分）都能對上 */
+function aiCardOf(v){
+  if(v==null)return null;
+  const s=String(v).trim();if(!s)return null;
+  const cards=S.data.cards||[];
+  for(const c of cards)if(c.id===s)return c.id;
+  const U=normMerchant(s);
+  for(const c of cards){const N=normMerchant(c.name);if(N&&U&&(N.indexOf(U)>=0||U.indexOf(N)>=0))return c.id;}
+  return null;
+}
+const AI_KINDS=['tx','rebate','payment','credit'];
 function aiApplyReply(r){
   const valid=S.data.categories.map(c=>c.id);
-  let fixed=0,learned=0,forgot=0;const notes=[];
+  let fixed=0,learned=0,forgot=0,deleted=0,added=0;const notes=[];
   for(const f of(r.fix||[])){
     const row=IMPPDF.rows[+f.i];if(!row)continue;
-    let hit=false;
+    let hit=false;const bits=[];
     if(f.category&&valid.indexOf(f.category)>=0&&f.category!==row.category){
       const c=catById(f.category);
-      row.category=f.category;fixed++;hit=true;
-      notes.push('#'+f.i+' → '+(c?c.name:f.category));
+      row.category=f.category;hit=true;
+      bits.push('分類→'+(c?c.name:f.category));
     }
-    if(f.online===true||f.online==='true'||f.online===1){if(row.online!==true){row.online=true;if(!hit){fixed++;hit=true;}}notes.push('#'+f.i+' 標為網上');}
-    else if(f.online===false||f.online==='false'||f.online===0){if(row.online!==false){row.online=false;if(!hit){fixed++;hit=true;}}notes.push('#'+f.i+' 標為門市');}
-    if(f.merchant&&String(f.merchant).trim()){row.merchant=String(f.merchant).trim();}
+    if(f.online===true||f.online==='true'||f.online===1){if(row.online!==true){row.online=true;hit=true;}bits.push('網上');}
+    else if(f.online===false||f.online==='false'||f.online===0){if(row.online!==false){row.online=false;hit=true;}bits.push('門市');}
+    if(f.merchant&&String(f.merchant).trim()&&String(f.merchant).trim()!==row.merchant){row.merchant=String(f.merchant).trim();hit=true;bits.push('商家→'+row.merchant);}
+    if(f.date&&/^\d{4}-\d{2}-\d{2}$/.test(String(f.date))&&f.date!==row.date){row.date=String(f.date);hit=true;bits.push('日期→'+row.date);}
+    if(f.amount!=null&&isFinite(+f.amount)&&+f.amount>0&&num(+f.amount)!==num(row.amount)){row.amount=num(+f.amount);hit=true;bits.push('金額→HK$'+num(row.amount).toFixed(2));}
+    const nk=String(f.kind||'').toLowerCase();
+    if(nk&&AI_KINDS.indexOf(nk)>=0&&(row.kind||'tx')!==nk){row.kind=nk;hit=true;bits.push('類型→'+(KINDS[nk]||KINDS.tx).n);}
+    const nc=aiCardOf(f.card);
+    if(nc&&nc!==row.cardId){row.cardId=nc;hit=true;bits.push('卡片→'+((cardById(nc)||{}).name||nc));}
+    if(hit){fixed++;notes.push('#'+f.i+' '+(bits.join('、')||'已修改'));}
+  }
+  /* 刪除：由大到小 splice，編號不亂；列表與編號即時重排 */
+  if(r.del&&r.del.length){
+    const idx=[...new Set(r.del.map(x=>+x))].filter(i=>i>=0&&i<IMPPDF.rows.length).sort((a,b)=>b-a);
+    for(const i of idx){
+      const row=IMPPDF.rows[i];
+      notes.push('已刪 #'+i+'（'+((row.merchant||'').slice(0,24)||'空白')+' HK$'+num(row.amount).toFixed(2)+'）');
+      IMPPDF.rows.splice(i,1);deleted++;
+    }
+    IMPPDF.openEdits={};   /* 行號已位移，清掉舊的單筆編輯狀態 */
+  }
+  /* 新增：日期缺 → 結單月份 1 日；卡片缺 → 對話前所選卡；kind 缺 → tx */
+  for(const a of(r.add||[])){
+    if(!a)continue;
+    const amount=num(a.amount);
+    if(!(amount>0)){continue;}
+    let date=String(a.date||'');
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){
+      const sm=aiStmtMonth();
+      date=sm?sm+'-01':todayStr();
+    }
+    const kind=AI_KINDS.indexOf(String(a.kind||'').toLowerCase())>=0?String(a.kind).toLowerCase():'tx';
+    const cardId=aiCardOf(a.card)||IMPPDF.cardId||(S.data.cards[0]||{}).id;
+    if(!cardId)continue;
+    const merchant=String(a.merchant||'').replace(/\s+/g,' ').trim()||'(AI 新增)';
+    const category=valid.indexOf(a.category)>=0?a.category:'other';
+    const online=a.online===true?true:a.online===false?false:null;
+    IMPPDF.rows.push({kind,date,amount,merchant,category,online,cardId});
+    added++;
+    notes.push('已加 '+(KINDS[kind]||KINDS.tx).n+'：'+merchant+' HK$'+amount.toFixed(2)+'（'+date+' · '+((cardById(cardId)||{}).name||cardId)+'）');
   }
   if((r.learn&&r.learn.length)||(r.forget&&r.forget.length)){
     mutate(dd=>{
@@ -2294,7 +2362,7 @@ function aiApplyReply(r){
       }
     });
   }
-  return {fixed,learned,forgot,notes};
+  return {fixed,learned,forgot,deleted,added,notes};
 }
 /* 發送一句到 AI（送出與重試共用）：失敗時錯誤泡泡附 retryText，可直接一鍵重發，不必重打整段 */
 async function aiChatSendText(text){
@@ -2310,7 +2378,13 @@ async function aiChatSendText(text){
     const meta=aiApplyReply(r);
     meta.say=String(r.say||'…');
     IMPPDF.chat.push({role:'assistant',content:String(res),meta});
-    if(meta.fixed||meta.learned||meta.forgot)toast('已修正 '+meta.fixed+' 筆、學習 '+meta.learned+' 條記憶'+(meta.forgot?'、忘記 '+meta.forgot+' 條':''),'ok');
+    const acts=[];
+    if(meta.fixed)acts.push('修正 '+meta.fixed+' 筆');
+    if(meta.deleted)acts.push('刪除 '+meta.deleted+' 筆');
+    if(meta.added)acts.push('新增 '+meta.added+' 筆');
+    if(meta.learned)acts.push('學習 '+meta.learned+' 條記憶');
+    if(meta.forgot)acts.push('忘記 '+meta.forgot+' 條');
+    if(acts.length)toast('已'+acts.join('、')+'，回「確認頁」可查看','ok');
   }catch(e){
     IMPPDF.chat.push({role:'assistant',content:'',meta:{say:'連線失敗：'+(e.message||e),err:true,retryText:text}});
     toast('AI 對話失敗，詳見泡泡內說明（可一鍵重試）','err');
@@ -2327,6 +2401,8 @@ function aiChatSheet(){
     const mt=m.meta||{};
     const tags=[];
     if(mt.fixed)tags.push('已修正 '+mt.fixed+' 筆');
+    if(mt.deleted)tags.push('已刪 '+mt.deleted+' 筆');
+    if(mt.added)tags.push('已加 '+mt.added+' 筆');
     if(mt.learned)tags.push('已學習 '+mt.learned+' 條');
     if(mt.forgot)tags.push('已忘記 '+mt.forgot+' 條');
     return '<div style="display:flex;justify-content:flex-start;margin:8px 0"><div style="max-width:86%;background:#F1F2F6;color:var(--ink,#222);border-radius:14px 14px 14px 4px;padding:9px 13px;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word'+(mt.err?';color:var(--bad,#D64545)':'')+'">'
@@ -2345,11 +2421,11 @@ function aiChatSheet(){
   }).join('');
   const knCount=(S.data.knowledge||[]).length;
   return `<div class="s-head">AI 標記助手</div>
-  <p class="s-sub">直接告訴 AI 哪裡標錯了（例如「第3筆是超市」或「MCDONALD 全部算餐飲」），它會即時修正交易，並<b>記住你的偏好</b>——之後匯入同名商家會自動沿用。對話有上下文記憶，可以連續追問。</p>
+  <p class="s-sub">直接告訴 AI 哪裡標錯了（例如「第3筆是超市」「#5 金額改成 58」「這筆不要抓」「加一行 Purple 卡積分 3820 分」），它會<b>即時修改交易</b>——分類、金額、日期、商家、卡片、類型都能改，也能刪除或新增整行，並<b>記住你的偏好</b>。對話有上下文記憶，可以連續追問；改完回「確認頁」會看到最新內容。</p>
   <div style="margin:4px 0 8px;padding:8px 10px;background:#FAFAFC;border:1px solid #ECECF4;border-radius:11px;max-height:130px;overflow:auto">
     <div style="font-size:11px;color:var(--muted,#888);margin-bottom:3px;font-weight:700">待確認交易（說「第幾筆」即可）</div>${rowsRef}</div>
   <div id="ai-chat-log" style="max-height:38vh;overflow:auto;padding:2px 2px 6px">${log||'<div class="mini" style="text-align:center;padding:14px 0">跟 AI 說第一句話吧，例如：「第2筆不是交通，是超市」</div>'}${busyBubble}</div>
-  <div class="field" style="margin-top:8px"><textarea id="ai-chat-in" rows="2" placeholder="告訴 AI 哪裡標錯了…（Enter 送出，Shift+Enter 換行）"></textarea></div>
+  <div class="field" style="margin-top:8px"><textarea id="ai-chat-in" rows="2" placeholder="告訴 AI 怎麼改…（改金額/日期/商家/卡片/類型、刪掉某筆、加一行，Enter 送出）"></textarea></div>
   <div class="s-actions" style="gap:8px">
     <button class="btn btn-ghost" data-action="ai-chat-back">返回確認頁</button>
     ${chat.length?'<button class="btn btn-ghost" data-action="ai-chat-clear">清空對話</button>':''}
