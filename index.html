@@ -1886,14 +1886,107 @@ function pageText(items){
   for(const l of lines){l.toks.sort((a,b)=>a.x-b.x);let pe=null;const p=[];for(const w of l.toks){if(pe!=null&&(w.x-pe)>Math.max(1.2,w.fs*0.25))p.push(' ');p.push(w.str);pe=Math.max(pe||0,w.x+w.w);}out.push(p.join('').replace(/[ \t]+/g,' ').trim());}
   return out.filter(Boolean).join('\n');
 }
+/* 支援多輪對話：prompt 可為字串（單輪）或 messages 陣列（含 system 與歷史，AI 有記憶） */
 async function aiChat(prompt){
   const c=getAiCfg();
+  const msgs=Array.isArray(prompt)?prompt:[{role:'user',content:prompt}];
   const res=await fetch((c.base||'').replace(/\/+$/,'')+'/chat/completions',
     {method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+c.key},
-     body:JSON.stringify({model:c.model||'gpt-4o-mini',temperature:0,messages:[{role:'user',content:prompt}]})});
+     body:JSON.stringify({model:c.model||'gpt-4o-mini',temperature:0,messages:msgs})});
   if(!res.ok){let m='HTTP '+res.status;try{const j=await res.json();m=(j.error&&j.error.message)||m;}catch(e){}throw new Error(m);}
   const j=await res.json();
   return (j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
+}
+/* ============ AI 對話標記助手：跟用戶對話修正標記，有記憶（對話歷史）與學習（知識庫） ============ */
+function aiChatSysPrompt(){
+  const cats=S.data.categories.map(c=>c.id+'('+c.name+')').join('、');
+  const rows=IMPPDF.rows.map((r,i)=>{
+    const cat=catById(r.category);const kd=KINDS[r.kind||'tx']||KINDS.tx;const cd=cardById(r.cardId);
+    return '#'+i+' ['+kd.n+(cd?' · '+cd.name:'')+'] '+(r.merchant||'(空白)')+' HK$'+num(r.amount).toFixed(2)
+      +' → '+(cat?cat.name:'未分類')+(r.online===true?'（網上）':r.online===false?'（門市）':'');
+  }).join('\n');
+  const k=(S.data.knowledge||[]).slice(-80).map(r=>{
+    const c=catById(r.category);return normMerchant(r.pattern)+'→'+(c?c.name:r.category)+(r.online?'（網上）':r.online===false?'（門市）':'');
+  }).join('；');
+  return '你是「Micy刷哪張」的消費標記助手。用戶正在核對月結單交易的分類標記，會告訴你哪裡標錯了，你要幫忙修正並學習他的偏好。'
+    +'所有回覆請用繁體中文。\n可用分類：'+cats+'\n\n目前待確認的交易（i 即 #編號）：\n'+(rows||'（無）')
+    +'\n\n用戶的學習記憶（之後同名商家會自動沿用）：'+(k||'（暫無）')
+    +'\n\n回覆規則：只輸出一個 JSON 物件（不要 markdown 代碼塊、不要其他文字），格式：'
+    +'{\"say\":\"給用戶看的回覆\",\"fix\":[{\"i\":編號,\"category\":\"分類id\",\"online\":true/false/null}],\"learn\":[{\"pattern\":\"商家關鍵字\",\"category\":\"分類id\",\"online\":true/false}],\"forget\":[\"要忘記的商家關鍵字\"]}'
+    +'\n說明：fix 用戶指正的錯誤時填 i（對應 #編號）與正確 category/online；該商家之後應該自動沿用就把 learn 填上（pattern 取商家名最具代表性的字串，例如 MCDONALD、KOWLOON MOTO，之後會模糊比對）；用戶要你忘記某規則就填 forget；只是回答問題不修改時，fix/learn/forget 填空陣列。'
+    +'線上/實體判斷：含網購平台、App Store、訂票網等為 online:true；實體店、餐廳、交通工具為 false。';
+}
+function aiParseReply(res){
+  const raw=String(res||'').trim().replace(/```json|```/g,'');
+  const m=/\{[\s\S]*\}/.exec(raw);
+  if(m){try{const o=JSON.parse(m[0]);if(o&&typeof o==='object')return o;}catch(e){}}
+  return {say:raw||'（AI 沒有回應）',fix:[],learn:[],forget:[]};   /* 非 JSON → 當純文字對話 */
+}
+function aiApplyReply(r){
+  const valid=S.data.categories.map(c=>c.id);
+  let fixed=0,learned=0,forgot=0;const notes=[];
+  for(const f of(r.fix||[])){
+    const row=IMPPDF.rows[+f.i];if(!row)continue;
+    let hit=false;
+    if(f.category&&valid.indexOf(f.category)>=0&&f.category!==row.category){
+      const c=catById(f.category);
+      row.category=f.category;fixed++;hit=true;
+      notes.push('#'+f.i+' → '+(c?c.name:f.category));
+    }
+    if(f.online===true||f.online==='true'||f.online===1){if(row.online!==true){row.online=true;if(!hit){fixed++;hit=true;}}notes.push('#'+f.i+' 標為網上');}
+    else if(f.online===false||f.online==='false'||f.online===0){if(row.online!==false){row.online=false;if(!hit){fixed++;hit=true;}}notes.push('#'+f.i+' 標為門市');}
+    if(f.merchant&&String(f.merchant).trim()){row.merchant=String(f.merchant).trim();}
+  }
+  if((r.learn&&r.learn.length)||(r.forget&&r.forget.length)){
+    mutate(dd=>{
+      for(const l of(r.learn||[])){
+        if(!l||!l.pattern||!l.category||valid.indexOf(l.category)<0)continue;
+        rememberLabel(dd,l.pattern,l.category,l.online==null?null:!!l.online,'ai');
+        learned++;
+      }
+      for(const p of(r.forget||[])){
+        const P=normMerchant(p);if(!P)continue;
+        const before=(dd.knowledge||[]).length;
+        dd.knowledge=(dd.knowledge||[]).filter(k=>normMerchant(k.pattern)!==P);
+        if((dd.knowledge||[]).length<before)forgot++;
+      }
+    });
+  }
+  return {fixed,learned,forgot,notes};
+}
+function aiChatSheet(){
+  const chat=IMPPDF.chat||[],busy=!!IMPPDF.chatBusy;
+  const log=chat.map(m=>{
+    if(m.role==='user')return '<div style="display:flex;justify-content:flex-end;margin:8px 0"><div style="max-width:86%;background:var(--pri,#6C5CE7);color:#fff;border-radius:14px 14px 4px 14px;padding:9px 13px;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word">'+esc(m.content)+'</div></div>';
+    const mt=m.meta||{};
+    const tags=[];
+    if(mt.fixed)tags.push('已修正 '+mt.fixed+' 筆');
+    if(mt.learned)tags.push('已學習 '+mt.learned+' 條');
+    if(mt.forgot)tags.push('已忘記 '+mt.forgot+' 條');
+    return '<div style="display:flex;justify-content:flex-start;margin:8px 0"><div style="max-width:86%;background:#F1F2F6;color:var(--ink,#222);border-radius:14px 14px 14px 4px;padding:9px 13px;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word'+(mt.err?';color:var(--bad,#D64545)':'')+'">'
+      +esc(mt.say||'…')+(tags.length?'<div style="margin-top:6px;font-size:11.5px;color:#0E9663;font-weight:700">'+tags.join(' · ')+'</div>':'')
+      +(mt.notes&&mt.notes.length?'<div style="margin-top:4px;font-size:11.5px;color:#0E9663">'+esc(mt.notes.join('、'))+'</div>':'')+'</div></div>';
+  }).join('');
+  const busyBubble=busy?'<div style="display:flex;justify-content:flex-start;margin:8px 0"><div style="background:#F1F2F6;border-radius:14px 14px 14px 4px;padding:9px 13px;font-size:13.5px;color:var(--muted,#777)">AI 思考中…</div></div>':'';
+  const rowsRef=IMPPDF.rows.map((r,i)=>{
+    const cat=catById(r.category);const cd=cardById(r.cardId);const kd=KINDS[r.kind||'tx']||KINDS.tx;
+    return '<div style="display:flex;gap:7px;align-items:baseline;padding:3px 0;border-bottom:1px dashed #E8E8EE">'
+      +'<span style="flex:none;font-weight:800;color:var(--pri,#6C5CE7);font-size:11.5px">#'+i+'</span>'
+      +'<span style="flex:1;min-width:0;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.merchant||'(空白)')+'</span>'
+      +'<span style="flex:none;font-size:11px;color:var(--muted,#888)">'+(cat?cat.name:'未分類')+(r.online===true?'·網上':r.online===false?'·門市':'')+'</span></div>';
+  }).join('');
+  const knCount=(S.data.knowledge||[]).length;
+  return `<div class="s-head">AI 標記助手</div>
+  <p class="s-sub">直接告訴 AI 哪裡標錯了（例如「第3筆是超市」或「MCDONALD 全部算餐飲」），它會即時修正交易，並<b>記住你的偏好</b>——之後匯入同名商家會自動沿用。對話有上下文記憶，可以連續追問。</p>
+  <div style="margin:4px 0 8px;padding:8px 10px;background:#FAFAFC;border:1px solid #ECECF4;border-radius:11px;max-height:130px;overflow:auto">
+    <div style="font-size:11px;color:var(--muted,#888);margin-bottom:3px;font-weight:700">待確認交易（說「第幾筆」即可）</div>${rowsRef}</div>
+  <div id="ai-chat-log" style="max-height:38vh;overflow:auto;padding:2px 2px 6px">${log||'<div class="mini" style="text-align:center;padding:14px 0">跟 AI 說第一句話吧，例如：「第2筆不是交通，是超市」</div>'}${busyBubble}</div>
+  <div class="field" style="margin-top:8px"><textarea id="ai-chat-in" rows="2" placeholder="告訴 AI 哪裡標錯了…（Enter 送出，Shift+Enter 換行）"></textarea></div>
+  <div class="s-actions" style="gap:8px">
+    <button class="btn btn-ghost" data-action="ai-chat-back">返回確認頁</button>
+    ${chat.length?'<button class="btn btn-ghost" data-action="ai-chat-clear">清空對話</button>':''}
+    <button class="btn btn-primary" data-action="ai-chat-send" ${busy?'disabled':''}>送出</button></div>
+  <p class="mini" style="margin-top:6px">學習記憶現有 ${knCount} 條（設定→學習記憶可管理）；AI 對話只在本裝置與你的 API 之間進行。</p>`;
 }
 function pdfReviewRows(rows){
   const open=(IMPPDF.openEdits=IMPPDF.openEdits||{});
@@ -1950,7 +2043,7 @@ function pdfImportSheet(step){
   return `<div class="s-head">確認月結單交易</div>
   <p class="s-sub">共 ${IMPPDF.rows.length} 筆 · ${counts||'—'}。已自動分類，<b>有問題再逐筆點「修改」編輯</b>（日期／金額／商家／分類／卡片／網上）；你在這裡改的分類會被記住，下次同名商家自動沿用。回贈／還款／退款不進入「刷哪張」推薦。</p>
   ${detBanner}
-  ${aiConfigured()?`<div style="margin:6px 0"><button class="btn btn-primary btn-block" data-action="pdft-ai">✨ AI 標記全部消費</button></div>`:''}
+  ${aiConfigured()?`<div style="margin:6px 0;display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" data-action="pdft-ai">✨ AI 標記全部</button><button class="btn" style="flex:1" data-action="ai-chat-open">💬 跟 AI 對話修正</button></div>`:''}
   ${pdfReviewRows(IMPPDF.rows)}
   <button class="sheet-float" data-action="pdft-bottom" title="拉到最下面確認">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.5l7 6.5-7 6.5"/></svg>拉到底</button>
@@ -2299,6 +2392,35 @@ const ACTIONS={
     else if(f==='online')r.online=v===''?null:v==='1';
     else if(f==='card'){r.cardId=v;}   /* 修正：卡片下拉欄位對應 row.cardId，否則改了不生效 */
     else r[f]=v;},
+  'ai-chat-open':()=>{IMPPDF.chat=IMPPDF.chat||[];openSheet(aiChatSheet());const l=$('ai-chat-log');if(l)l.scrollTop=l.scrollHeight;},
+  'ai-chat-send':async()=>{
+    if(IMPPDF.chatBusy)return;
+    const inp=$('ai-chat-in');
+    const text=String(inp&&inp.value||'').trim();
+    if(!text)return;
+    IMPPDF.chat=IMPPDF.chat||[];
+    IMPPDF.chat.push({role:'user',content:text});
+    IMPPDF.chatBusy=true;
+    openSheet(aiChatSheet());
+    const l=$('ai-chat-log');if(l)l.scrollTop=l.scrollHeight;
+    try{
+      const res=await aiChat([{role:'system',content:aiChatSysPrompt()}].concat(IMPPDF.chat));
+      const r=aiParseReply(res);
+      const meta=aiApplyReply(r);
+      meta.say=String(r.say||'…');
+      IMPPDF.chat.push({role:'assistant',content:String(res),meta});
+      if(meta.fixed||meta.learned||meta.forgot)toast('已修正 '+meta.fixed+' 筆、學習 '+meta.learned+' 條記憶'+(meta.forgot?'、忘記 '+meta.forgot+' 條':''),'ok');
+    }catch(e){
+      IMPPDF.chat.push({role:'assistant',content:'',meta:{say:'連線失敗：'+(e.message||e),err:true}});
+      toast('AI 對話失敗：'+(e.message||e),'err');
+    }
+    IMPPDF.chatBusy=false;
+    openSheet(aiChatSheet());
+    const l2=$('ai-chat-log');if(l2)l2.scrollTop=l2.scrollHeight;
+    const i2=$('ai-chat-in');if(i2)i2.focus();
+  },
+  'ai-chat-back':()=>openSheet(pdfImportSheet(2)),
+  'ai-chat-clear':()=>{IMPPDF.chat=[];openSheet(aiChatSheet());},
   'pdft-ai':async(d,t)=>{const btn=$('pdft-ai-btn')||t;if(IMPPDF.aiBusy)return;IMPPDF.aiBusy=true;if(btn){btn.disabled=true;btn.textContent='AI 標記中…';}
     try{
       const catSeed=S.data.categories.map(c=>c.id+':'+c.name+(c.keywords&&c.keywords.length?('→'+c.keywords.slice(0,5).join('/')):'')).join('; ');
@@ -2352,6 +2474,7 @@ const ACTIONS={
     });
     closeSheet();
     toast('已匯入消費 '+ok+' 筆、月結回贈 '+reb+' 筆、還款/退款 '+cred+' 筆'+(skip?'（略過 '+skip+' 筆）':''),'ok');
+    IMPPDF.chat=null;IMPPDF.rows=[];IMPPDF.openEdits={};   /* 清空對話與暫存：交易已入帳 */
     UI.screen='records';render();
   },
   'cred-open':()=>openSheet(creditsSheet()),
@@ -2396,6 +2519,9 @@ document.addEventListener('input',e=>{
   else if(id==='ask-date')askForm.date=e.target.value;
 });
 document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&e.target.id==='ai-chat-in'&&!e.shiftKey&&!e.isComposing){   /* AI 對話框：Enter 送出 */
+    e.preventDefault();const b=$('sheet').querySelector('[data-action="ai-chat-send"]');if(b&&!b.disabled)b.click();return;
+  }
   if(e.key==='Enter'&&!$('sheet-wrap').hidden&&e.target.tagName!=='TEXTAREA'){
     const pb=$('sheet').querySelector('.btn-primary');
     if(pb){e.preventDefault();pb.click();}
