@@ -226,6 +226,18 @@ details.panel summary.tgl-summary .p-title{font-size:15px;font-weight:700;margin
 .sheet-float:hover{background:#5A4BD6}
 .user-nm{font-size:14.5px;font-weight:800;color:#18132E;line-height:1.35;overflow-wrap:anywhere;word-break:break-word;white-space:normal}
 
+/* ---- 月結單 PDF 對賬：行內「📄」入口 + 查看器 ---- */
+.pdf-btn{border:none;background:#EEF0FE;color:#4A3FBF;border-radius:7px;padding:1px 8px;font-size:11px;font-weight:800;
+  cursor:pointer;margin-left:5px;vertical-align:1px;-webkit-tap-highlight-color:transparent}
+.pdf-btn:hover{background:#DDE1FC}
+.pdf-stage{position:relative;margin:8px 0;border:1.5px solid var(--line);border-radius:12px;overflow:hidden;background:#F6F6FA}
+.pdf-stage canvas{display:block}
+#pdf-hl{position:absolute;inset:0;pointer-events:none}
+.pdf-hl-band{position:absolute;left:5px;right:5px;background:rgba(255,205,0,.42);border-radius:4px;box-shadow:0 0 0 1.5px rgba(235,160,0,.6)}
+.pdf-busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--muted);background:rgba(255,255,255,.78)}
+.pdf-nav{display:flex;gap:8px;margin:4px 0 0}
+.pdf-nav .btn{flex:1}
+
 /* ---- 卡片設置（iOS 群組樣式） ---- */
 .cset{background:#F2F2F7;margin:-18px -18px 0;padding:18px 16px 8px}
 .cset-face{width:100%;max-width:360px;margin:2px auto 18px;display:block;border-radius:16px;box-shadow:0 12px 24px rgba(15,10,60,.25)}
@@ -1330,10 +1342,11 @@ function recordsHTML(){
     const rows=rms.map(rm=>{
       const card=cardById(rm.cardId);
       const warn=rmImplausible(rm)?' <span class="b" style="background:#c2410c;color:#fff">⚠ 金額異常</span>':'';
+      const pdfBtn=rm.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="rm" data-id="${rm.id}" title="跳回月結單原件，高亮此筆對賬">📄</button>`:'';
       return `<div class="row" data-action="rm-edit" data-id="${rm.id}">
       <div class="row-ico">💰</div>
       <div class="row-main"><div class="row-t1">${esc(card?card.name:'已刪卡片')} ${rm.demo?'<span class="b b-demo">示例</span>':''}${warn}</div>
-      <div class="row-t2">${monthLabel(rm.month)} 實際入賬${rm.note?' · '+esc(rm.note):''}</div></div>
+      <div class="row-t2">${monthLabel(rm.month)} 實際入賬${rm.note?' · '+esc(rm.note):''}${pdfBtn}</div></div>
       <div class="row-amt amt-good">${fmtHKD(rm.amount)}</div></div>`;
     }).join('');
     const anyWarn=rms.some(rm=>rmImplausible(rm));
@@ -1343,8 +1356,9 @@ function recordsHTML(){
       .sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(b.id).localeCompare(String(a.id)));
     const credRows=creds.map(c=>{
       const card=cardById(c.cardId),kd=KINDS[c.kind]||KINDS.tx;
+      const pdfBtn=c.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="cred" data-id="${c.id}" title="跳回月結單原件，高亮此筆對賬">📄</button>`:'';
       return `<div class="kv"><div><span style="font-size:11px;color:#fff;background:${kd.bg};border-radius:7px;padding:1px 7px">${kd.n}</span>
-      <b>${fmtHKD(c.amount)}</b><br><span class="mini">${fmtDateFull(c.date)} · ${esc(c.merchant)}${card?' · '+esc(card.name):''}</span></div>
+      <b>${fmtHKD(c.amount)}</b><br><span class="mini">${fmtDateFull(c.date)} · ${esc(c.merchant)}${card?' · '+esc(card.name):''}${pdfBtn}</span></div>
       <button class="btn btn-sm btn-ghost" data-action="cred-del" data-id="${c.id}">刪除</button></div>`;
     }).join('');
     return `${tabsHTML('rm')}
@@ -1370,10 +1384,11 @@ function recordsHTML(){
   const rows=txs.map(t=>{
     const card=cardById(t.cardId),cat=catById(t.category),hasAct=t.actualReward!=null;
     const c=calByCard.get(t.cardId),cAmt=(c&&c.factor>0)?(t.expectedReward||0)*c.factor:null;
+    const pdfBtn=t.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="tx" data-id="${t.id}" title="跳回月結單原件，高亮此筆對賬">📄</button>`:'';
     return `<div class="row" data-action="tx-edit" data-id="${t.id}">
     <div class="row-ico">${cat.emoji}</div>
     <div class="row-main"><div class="row-t1">${esc(t.merchant)}</div>
-    <div class="row-t2">${fmtDateFull(t.date)} · ${esc(card?card.name:'已刪卡片')}${t.online?' · 網上':''}${t.demo?' <span class="b b-demo">示例</span>':''}${t.ruleName?' · '+esc(t.ruleName):''}</div></div>
+    <div class="row-t2">${fmtDateFull(t.date)} · ${esc(card?card.name:'已刪卡片')}${t.online?' · 網上':''}${t.demo?' <span class="b b-demo">示例</span>':''}${t.ruleName?' · '+esc(t.ruleName):''}${pdfBtn}</div></div>
     <div class="row-amt amt-bad">${fmtHKD(t.amount)}<small class="amt-dim">${hasAct?'實際 '+fmtHKD(t.actualReward):(cAmt!=null?'校準 '+fmtHKD(cAmt)+' · 理論 '+fmtHKD(t.expectedReward):'預計 '+fmtHKD(t.expectedReward))}</small></div></div>`;
   }).join('');
   return `<section class="panel" style="display:flex;gap:10px">
@@ -1388,7 +1403,8 @@ function recordsHTML(){
   ${rows||'<div class="empty">本月未有記錄<br>可匯入銀行語句（CSV）或手動新增</div>'}
   <section class="panel" style="display:flex;gap:10px">
   <button class="btn btn-ghost" style="flex:1" data-action="import-open">匯入語句（CSV）</button>
-  <button class="btn btn-ghost" style="flex:1" data-action="cred-open">回贈／還款</button></section>`;
+  <button class="btn btn-ghost" style="flex:1" data-action="cred-open">回贈／還款</button>
+  <button class="btn btn-ghost" style="flex:1" data-action="pdf-lib">📄 PDF 對賬</button></section>`;
 }
 function txSheet(txId,pref){
   const tx=txId?S.data.transactions.find(t=>t.id===txId):null;
@@ -1415,6 +1431,7 @@ function txSheet(txId,pref){
   <div class="frow"><div class="field"><label class="f-lbl">金額 HK$</label><input type="number" id="t-act" step="0.01" min="0" placeholder="待入賬" value="${tx&&tx.actualReward!=null?tx.actualReward:''}"></div>
   <div class="field"><label class="f-lbl">入賬日期</label><input type="date" id="t-actd" value="${tx&&tx.actualDate||''}"></div></div>
   <div class="field"><label class="f-lbl">備註</label><input id="t-note" value="${esc(tx?tx.note||'':'')}"></div>
+  ${tx&&tx.sid?`<button class="btn btn-ghost btn-block" style="margin-top:10px" data-action="pdf-view" data-kind="tx" data-id="${tx.id}">📄 查看月結單原件（高亮此筆對賬）</button>`:''}
   <div class="s-actions">${tx?`<button class="btn btn-danger" data-action="tx-del" data-id="${tx.id}">刪除</button>`:''}
   <button class="btn btn-primary" data-action="tx-save" data-id="${txId||''}">儲存</button></div>`;
 }
@@ -1555,7 +1572,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</details>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.8 · 回贈異常修正＋重複匯入防護＋GO卡結單日期修正</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.9 · 月結單PDF對賬：點一筆即跳回原單高亮</span></div>
   <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -1960,22 +1977,234 @@ async function pdfsToTexts(files){
   const out=[];
   for(const f of files){
     const arr=await f.arrayBuffer();
-    const pdf=await pdfjsLib.getDocument({data:arr}).promise;
+    const pdf=await pdfjsLib.getDocument({data:arr.slice(0)}).promise;   /* 傳副本給 pdf.js（可能被轉移），原件留作保存 */
     let t='';
     for(let i=1;i<=pdf.numPages;i++){const pg=await pdf.getPage(i);const c=await pg.getTextContent();t+='\n'+pageText(c.items);}
-    out.push(t);
+    out.push({text:t,name:f.name||'月結單.pdf',buf:arr,numPages:pdf.numPages});
   }
   return out;
 }
-/* 依座標重建可讀文字（Mox/HSBC 交易列需行級重排） */
-function pageText(items){
+/* 依座標重建可讀文字（Mox/HSBC 交易列需行級重排）；pageLines 額外保留每行的 y 座標與字級，供 PDF 對賬高亮用 */
+function pageLines(items){
   const toks=[];
   for(const it of items){if(!it.str)continue;const t=it.transform||[1,0,0,1,0,0];const fs=Math.max(4,Math.min(30,it.height||Math.abs(t[3])||8));toks.push({x:t[4],y:t[5],fs,str:it.str,w:it.width||(it.str.length*fs*0.5)});}
   toks.sort((a,b)=>a.y-b.y);const lines=[];
   for(const tk of toks){const tol=Math.max(2,Math.min(3.5,tk.fs*0.4));let L=null;for(const l of lines){if(Math.abs(l.y-tk.y)<=tol){L=l;break;}}if(L){L.toks.push(tk);L.y=(L.y+tk.y)/2;}else lines.push({y:tk.y,toks:[tk]});}
-  lines.sort((a,b)=>b.y-a.y);const out=[]; /* PDF 座標 Y 軸向上：由大至小 = 頁面由上至下（原本由細至大會令整頁行序上下顛倒） */
-  for(const l of lines){l.toks.sort((a,b)=>a.x-b.x);let pe=null;const p=[];for(const w of l.toks){if(pe!=null&&(w.x-pe)>Math.max(1.2,w.fs*0.25))p.push(' ');p.push(w.str);pe=Math.max(pe||0,w.x+w.w);}out.push(p.join('').replace(/[ \t]+/g,' ').trim());}
-  return out.filter(Boolean).join('\n');
+  lines.sort((a,b)=>b.y-a.y);const out=[]; /* PDF 座標 Y 軸向上：由大至小 = 頁面由上至下 */
+  for(const l of lines){l.toks.sort((a,b)=>a.x-b.x);let pe=null;const p=[];let fs=0;for(const w of l.toks){if(pe!=null&&(w.x-pe)>Math.max(1.2,w.fs*0.25))p.push(' ');p.push(w.str);pe=Math.max(pe||0,w.x+w.w);fs=Math.max(fs,w.fs);}out.push({y:l.y,fs,text:p.join('').replace(/[ \t]+/g,' ').trim()});}
+  return out.filter(L=>L.text);
+}
+function pageText(items){return pageLines(items).map(L=>L.text).join('\n');}
+
+/* ============ 月結單 PDF 原件庫（IndexedDB，僅本機保存，不上雲端不佔 localStorage） ============ */
+const PDFDB={db:null};
+function pdfDBOpen(){
+  if(PDFDB.db)return Promise.resolve(PDFDB.db);
+  if(!window.indexedDB)return Promise.resolve(null);
+  return new Promise(res=>{
+    try{
+      const rq=indexedDB.open('micy-pdfs',1);
+      rq.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains('pdfs'))db.createObjectStore('pdfs');};
+      rq.onsuccess=e=>{PDFDB.db=e.target.result;res(PDFDB.db);};
+      rq.onerror=()=>res(null);
+    }catch(e){res(null);}
+  });
+}
+async function pdfPut(sid,rec){
+  const db=await pdfDBOpen();if(!db)return false;
+  return new Promise(res=>{try{
+    const tx=db.transaction('pdfs','readwrite');tx.objectStore('pdfs').put(rec,sid);
+    tx.oncomplete=()=>res(true);tx.onerror=()=>res(false);
+  }catch(e){res(false);}});
+}
+async function pdfGet(sid){
+  const db=await pdfDBOpen();if(!db)return null;
+  return new Promise(res=>{try{
+    const rq=db.transaction('pdfs').objectStore('pdfs').get(sid);
+    rq.onsuccess=()=>res(rq.result||null);rq.onerror=()=>res(null);
+  }catch(e){res(null);}});
+}
+async function pdfDel(sid){
+  const db=await pdfDBOpen();if(!db)return false;
+  return new Promise(res=>{try{
+    const tx=db.transaction('pdfs','readwrite');tx.objectStore('pdfs').delete(sid);
+    tx.oncomplete=()=>res(true);tx.onerror=()=>res(false);
+  }catch(e){res(false);}});
+}
+async function pdfAll(){
+  const db=await pdfDBOpen();if(!db)return [];
+  return new Promise(res=>{try{
+    const out=[];const rq=db.transaction('pdfs').objectStore('pdfs').openCursor();
+    rq.onsuccess=()=>{const c=rq.result;if(!c){res(out);return;}out.push({sid:c.key,fp:c.value&&c.value.fp,name:c.value&&c.value.name,importedAt:c.value&&c.value.importedAt,size:c.value&&c.value.size});c.continue();};
+    rq.onerror=()=>res(out);
+  }catch(e){res([]);}});
+}
+
+/* ============ 對賬：定位並高亮 PDF 中的某一筆 ============ */
+const PDFVIEW={sid:null,doc:null,name:'',numPages:1,page:1,focus:null,lines:new Map()};
+const PDF_STOP=new Set(['HONG','KONG','HKG','CHINA','CHN','LIMITED','COMPANY','APPLE','PAY','CREDIT','CARD']);
+function pdfFocusOf(rec){
+  const dt=String(rec.date||'');
+  const dd=+dt.slice(8,10),mo=MONA[+dt.slice(5,7)-1]||'';
+  const dateTks=[];
+  if(dd&&mo)dateTks.push(dd+'-'+mo,dd+' '+mo,dd+mo);
+  if(dt.length>=10&&dd)dateTks.push(dd+'/'+dt.slice(5,7));
+  const merchTk=normTk(rec.merchant||rec.srcMerch||'').split(' ')
+    .filter(w=>w.length>=4&&!PDF_STOP.has(w)).sort((a,b)=>b.length-a.length).slice(0,4);
+  return {amount:+rec.amount||0,merchTk,dateTks};
+}
+function normTk(s){return String(s||'').toUpperCase().replace(/[^A-Z0-9\u4e00-\u9fff]+/g,' ');}
+function amtIn(text,a){   /* 金額須為獨立數字，避免 3.00 誤中 33.00；千分位一併處理；整數金額也接受無小數寫法（如 WAKU COIN 215） */
+  const v=r2(a);const s=v.toFixed(2);
+  const pats=[s.replace('.','\\.')];
+  if(v===Math.round(v))pats.push(String(Math.round(v)));   /* 整數：另以無小數形式比對（前後不得為數字/逗點/小數點） */
+  const T=String(text);
+  for(const p of pats){
+    const tail=p.indexOf('\\.')>=0?'([^0-9]|$)':'([^0-9.,]|$)';
+    const rx=new RegExp('(^|[^0-9.,])'+p+tail);
+    if(rx.test(T)||rx.test(T.replace(/,/g,'')))return true;
+  }
+  return false;
+}
+function pdfMatchLine(L,f){
+  if(!f)return false;
+  const T=String(L.text||'').toUpperCase();if(!T)return false;
+  const amtOk=!f.amount||amtIn(T,f.amount);
+  const mOk=f.merchTk.length>0&&f.merchTk.some(k=>T.indexOf(k)>=0);
+  const dOk=f.dateTks.length>0&&f.dateTks.some(k=>T.indexOf(k)>=0);
+  if(f.amount){
+    if(!f.merchTk.length&&!f.dateTks.length)return amtOk;   /* 降級②：只按金額 */
+    return amtOk&&(mOk||dOk);                                /* ①金額＋（商家或日期） */
+  }
+  return mOk||dOk;                                            /* 降級③：無金額（金額被改／合成統計值）→ 只按商家／日期 */
+}
+function pdfScoreLine(L,f){
+  if(!f)return 0;
+  const T=String(L.text||'').toUpperCase();let s=0;
+  for(const k of f.merchTk)if(T.indexOf(k)>=0)s+=2;
+  for(const k of f.dateTks)if(T.indexOf(k)>=0)s+=1.5;
+  if(f.amount&&amtIn(T,f.amount))s+=3;
+  return s;
+}
+async function pdfViewLines(p){
+  if(PDFVIEW.lines.has(p))return PDFVIEW.lines.get(p);
+  const pg=await PDFVIEW.doc.getPage(p);
+  const c=await pg.getTextContent();
+  const Ls=pageLines(c.items);
+  PDFVIEW.lines.set(p,Ls);
+  return Ls;
+}
+async function pdfFindPage(f){
+  let best=null;
+  for(let p=1;p<=PDFVIEW.numPages;p++){
+    for(const L of await pdfViewLines(p)){
+      if(!pdfMatchLine(L,f))continue;
+      const s=pdfScoreLine(L,f);
+      if(!best||s>best.s)best={p,s};
+    }
+  }
+  return best;
+}
+function pdfViewHTML(){
+  const f=PDFVIEW.focus;
+  const lookFor=f&&f.amount?('找 '+((f.merchTk[0]||'')+(f.merchTk[0]?' · ':''))+'$'+r2(f.amount).toFixed(2)):'';
+  return `<div class="s-head">📄 ${esc(PDFVIEW.name)}</div>
+  <div class="s-sub">第 <b id="pdf-pg">${PDFVIEW.page}</b> / ${PDFVIEW.numPages} 頁${lookFor?' · 定位：'+esc(lookFor):''}。黃色標示為對應的帳單行，可逐筆與 App 記錄核對。</div>
+  <div class="pdf-nav">
+  <button class="btn btn-sm btn-ghost" data-action="pdf-page" data-p="-1" ${PDFVIEW.page<=1?'disabled':''}>‹ 上一頁</button>
+  <button class="btn btn-sm btn-ghost" data-action="pdf-page" data-p="1" ${PDFVIEW.page>=PDFVIEW.numPages?'disabled':''}>下一頁 ›</button></div>
+  <div class="pdf-stage" id="pdf-stage"><div id="pdf-hl"></div><div class="pdf-busy" id="pdf-busy">PDF 渲染中…</div></div>
+  <div class="s-actions"><button class="btn btn-ghost" data-action="pdf-lib">PDF 對賬庫</button>
+  <button class="btn btn-primary" data-action="sheet-close">關閉</button></div>`;
+}
+async function pdfViewOpen(sid,focus){
+  if(typeof pdfjsLib==='undefined'||!pdfjsLib.getDocument){toast('PDF 解析器未載入，請檢查網絡後重試','err');return;}
+  const rec=await pdfGet(sid);
+  if(!rec||!rec.data){toast('找不到此筆的月結單 PDF 原件（可能已刪除）','err');return;}
+  try{
+    const doc=await pdfjsLib.getDocument({data:rec.data.slice(0)}).promise;
+    PDFVIEW.sid=sid;PDFVIEW.doc=doc;PDFVIEW.name=rec.name||'月結單.pdf';
+    PDFVIEW.numPages=doc.numPages;PDFVIEW.page=1;PDFVIEW.focus=focus||null;PDFVIEW.lines=new Map();
+    openSheet(pdfViewHTML());
+    await pdfAutoLocate();
+  }catch(e){toast('開啟 PDF 失敗：'+(e.message||e),'err');}
+}
+async function pdfAutoLocate(){
+  const f=PDFVIEW.focus;
+  if(f){
+    /* 三段式定位：①金額＋商家/日期 → ②只按金額 → ③只按商家/日期（金額可能被改過或為合成統計值） */
+    let hit=await pdfFindPage(f);
+    if(!hit&&f.amount)hit=await pdfFindPage({amount:f.amount,merchTk:[],dateTks:[]});
+    if(!hit)hit=await pdfFindPage({amount:0,merchTk:f.merchTk,dateTks:f.dateTks});
+    if(hit){PDFVIEW.page=hit.p;}
+    else if(PDFVIEW.numPages>1)toast('未能自動定位此筆（金額／商家或已被修改），請手動翻頁核對','err');
+  }
+  await pdfRenderPage();
+}
+async function pdfRenderPage(){
+  const stage=$('pdf-stage');if(!stage||!PDFVIEW.doc)return;
+  stage.querySelectorAll('canvas').forEach(c=>c.remove());   /* 翻頁時移除舊畫布 */
+  const cv=document.createElement('canvas');
+  stage.insertBefore(cv,stage.firstChild);
+  const pg=await PDFVIEW.doc.getPage(PDFVIEW.page);
+  const W=Math.max(240,Math.min(stage.clientWidth||620,680));
+  const base=pg.getViewport({scale:1});
+  const vp=pg.getViewport({scale:W/base.width});
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  cv.width=Math.floor(vp.width*dpr);cv.height=Math.floor(vp.height*dpr);
+  cv.style.width=Math.floor(vp.width)+'px';cv.style.height=Math.floor(vp.height)+'px';
+  const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+  await pg.render({canvasContext:ctx,viewport:vp}).promise;
+  const ind=$('pdf-pg');if(ind)ind.textContent=PDFVIEW.page;
+  stage.querySelectorAll('.pdf-nav [data-action="pdf-page"]').forEach(b=>{
+    const p=+b.dataset.p;
+    b.disabled=(PDFVIEW.page+p)<1||(PDFVIEW.page+p)>PDFVIEW.numPages;
+  });
+  const busy=$('pdf-busy');if(busy)busy.remove();
+  await pdfDrawHL(vp);
+}
+async function pdfDrawHL(vp){
+  const hl=$('pdf-hl');if(!hl)return;
+  hl.innerHTML='';
+  const f=PDFVIEW.focus;if(!f)return;
+  const Ls=await pdfViewLines(PDFVIEW.page);
+  for(const L of Ls){
+    if(!pdfMatchLine(L,f))continue;
+    const p1=vp.convertToViewportPoint(0,L.y+(L.fs||9)*0.3);
+    const p2=vp.convertToViewportPoint(0,L.y-(L.fs||9)*0.85);
+    const top=Math.min(p1[1],p2[1]),h=Math.max(10,Math.abs(p2[1]-p1[1]));
+    const d=document.createElement('div');
+    d.className='pdf-hl-band';d.style.top=top+'px';d.style.height=h+'px';
+    hl.appendChild(d);
+  }
+  if(hl.firstChild){
+    const target=hl.firstChild;   /* 捲到第一個（通常是最上方）命中行 */
+    setTimeout(()=>{target.scrollIntoView({block:'center',behavior:'smooth'});},120);
+  }
+}
+async function pdfLibSheet(){
+  const all=(await pdfAll()).sort((a,b)=>(b.importedAt||0)-(a.importedAt||0));
+  const bySid=new Map();
+  for(const t of S.data.transactions){if(t.sid)bySid.set(t.sid,(bySid.get(t.sid)||0)+1);}
+  for(const c of S.data.credits){if(c.sid)bySid.set(c.sid,(bySid.get(c.sid)||0)+1);}
+  for(const r of S.data.rewardMonths){if(r.sid)bySid.set(r.sid,(bySid.get(r.sid)||0)+1);}
+  let total=0;
+  const rows=all.map(s=>{
+    total+=s.size||0;
+    const n=bySid.get(s.sid)||0;
+    const ym=String(s.fp||'').split('|')[1]||'';
+    return `<div class="kv"><span class="kk"><b>${esc(s.name||'月結單')}</b><br>
+    <span class="mini">${ym?ym+' · ':''}${n?'App 內 '+n+' 筆記錄已關聯':'未關聯記錄'} · ${((s.size||0)/1024).toFixed(0)} KB</span></span>
+    <span style="display:flex;gap:6px;flex:none">
+    <button class="btn btn-sm btn-ghost" data-action="pdf-lib-open" data-sid="${esc(s.sid)}">查看</button>
+    <button class="btn btn-sm btn-ghost" data-action="pdf-lib-del" data-sid="${esc(s.sid)}">刪除</button></span></div>`;
+  }).join('');
+  openSheet(`<div class="s-head">月結單 PDF 對賬庫</div>
+  <p class="s-sub">匯入月結單時，PDF 原件會自動保存在本機（IndexedDB，不上雲端、不佔資料備份空間）。在「記錄」點任何一筆的 <b>📄</b> 就能跳回原單並高亮該行核對。舊記錄把同一份月結單重新匯入一次即可補上關聯（重複的筆數會自動略過，不會重複入帳）。</p>
+  ${rows||'<div class="mini">還沒有已保存的月結單 PDF。到「記錄 → 匯入月結單 PDF」匯入後原件會自動保存。</div>'}
+  ${rows?`<p class="mini" style="margin-top:10px">共 ${all.length} 份 · ${(total/1048576).toFixed(1)} MB。刪除原件不影響已入帳的記錄，只是不能再跳回查看。</p>
+  <button class="btn btn-danger btn-block" data-action="pdf-lib-clear">清除全部 PDF 原件</button>`:''}
+  <div class="s-actions"><button class="btn btn-primary" data-action="sheet-close">關閉</button></div>`);
 }
 /* 支援多輪對話：prompt 可為字串（單輪）或 messages 陣列（含 system 與歷史，AI 有記憶） */
 async function aiChat(prompt){
@@ -2125,7 +2354,8 @@ function pdfImportSheet(step){
     <div class="field"><label class="f-lbl">或直接貼上月結單文字</label>
     <textarea id="pdft-raw" rows="5" placeholder="貼上從 PDF 複製的文字（可省，選檔較方便）"></textarea></div>
     <div class="s-actions"><button class="btn btn-primary" data-action="pdft-raw-go">解析（貼上內容）</button></div>
-    <p class="mini" style="margin-top:8px">PDF 只在此裝置解析，不會上傳。解析後提供「確認入帳」介面逐筆核對。</p>`;
+    <button class="btn btn-ghost btn-block" style="margin-top:10px" data-action="pdf-lib">📄 查看已保存的月結單 PDF（對賬）</button>
+    <p class="mini" style="margin-top:8px">PDF 只在此裝置解析，不會上傳。解析後提供「確認入帳」介面逐筆核對；<b>確認入帳時 PDF 原件會保存到本機</b>，之後每一筆記錄都能點 📄 跳回原單高亮對賬。</p>`;
   }
   const kinds=IMPPDF.rows.reduce((m,r)=>{const k=r.kind||'tx';m[k]=(m[k]||0)+1;return m;},{});
   const counts=['tx','rebate','payment','credit'].filter(k=>kinds[k]).map(k=>KINDS[k].n+' '+kinds[k]).join(' · ');
@@ -2154,8 +2384,9 @@ function aiSheetHTML(){
 function creditsSheet(){
   const list=(S.data.credits||[]).slice().sort((a,b)=>b.date<a.date?-1:1).map(cm=>{
     const kd=KINDS[cm.kind]||KINDS.tx,card=cardById(cm.cardId);
+    const pdfBtn=cm.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="cred" data-id="${cm.id}" title="跳回月結單原件，高亮此筆對賬">📄</button>`:'';
     return `<div class="kv"><div><span style="font-size:12px;color:#fff;background:${kd.bg};border-radius:8px;padding:1px 8px">${kd.n}</span> <b>${fmtHKD(cm.amount)}</b><br>
-    <span class="mini">${fmtDateFull(cm.date)} · ${esc(cm.merchant)}${card?' · '+esc(card.name):''}</span></div>
+    <span class="mini">${fmtDateFull(cm.date)} · ${esc(cm.merchant)}${card?' · '+esc(card.name):''}${pdfBtn}</span></div>
     <button class="btn btn-sm btn-ghost" data-action="cred-del" data-id="${cm.id}">刪除</button></div>`;
   }).join('');
   return `<div class="s-head">回贈與還款</div>
@@ -2452,20 +2683,33 @@ const ACTIONS={
   }),
 
   /* ---- 月結單 PDF 匯入 + AI ---- */
-  'pdft-open':()=>{IMPPDF.rows=[];IMPPDF.cardId=(S.data.cards[0]||{}).id||'';openSheet(pdfImportSheet(1));},
+  'pdft-open':()=>{IMPPDF.rows=[];IMPPDF.pdfs=null;IMPPDF.cardId=(S.data.cards[0]||{}).id||'';openSheet(pdfImportSheet(1));},
   'pdft-card':(d,t)=>{IMPPDF.cardId=t.value;},
-  'pdft-file':(d,t)=>{
+  'pdft-file':async(d,t)=>{
     const fs=t.files;if(!fs||!fs.length){toast('未選到檔案','err');return;}
     if(typeof pdfjsLib==='undefined'||!pdfjsLib.getDocument){toast('PDF 解析器未載入，請檢查網絡後重試','err');return;}
     IMPPDF.cardId=$('pdft-card')?$('pdft-card').value:IMPPDF.cardId;
     toast('解析中，請稍候…');
-    pdfsToTexts(Array.from(fs)).then(segs=>{
-      const all=[];let gDet=null;
-      for(const tx of segs){const seg=buildRows(tx);all.push(...seg);if(!gDet)gDet=guessCard(tx);}
+    try{
+      const segs=await pdfsToTexts(Array.from(fs));
+      const lib=await pdfAll();          /* 同一份月結單（指紋相同）重匯 → 沿用原 sid，舊記錄的 PDF 關聯不會斷 */
+      const all=[];let gDet=null;const pdfs=[];
+      for(const f of segs){
+        const seg=buildRows(f.text);
+        if(!seg.length)continue;
+        const fp=seg[0].fp;
+        const dupF=pdfs.find(p=>p.fp===fp);
+        const sid=dupF?dupF.sid:((lib.find(s=>s.fp===fp)||{}).sid)||('st'+Date.now().toString(36)+Math.random().toString(36).slice(2,6));
+        seg.forEach(r=>{r.sid=sid;});
+        all.push(...seg);
+        if(!gDet)gDet=guessCard(f.text);
+        if(!dupF)pdfs.push({sid,name:f.name,buf:f.buf,fp});
+      }
       if(gDet)IMPPDF.cardId=gDet;   /* 自動偵測到卡片 → 同步預設值 */
       if(!all.length){toast('未能從這些 PDF 提取到交易，請改用「貼上文字」或直接逐筆記錄','err');openSheet(pdfImportSheet(1));return;}
-      IMPPDF.rows=all;openSheet(pdfImportSheet(2));toast('擷取到 '+all.length+' 筆待確認','ok');
-    }).catch(e=>{toast('讀取 PDF 失敗：'+(e.message||e),'err');});
+      IMPPDF.rows=all;IMPPDF.pdfs=pdfs;
+      openSheet(pdfImportSheet(2));toast('擷取到 '+all.length+' 筆待確認；確認後 PDF 原件會存到本機，之後每筆可點 📄 跳回原單高亮對賬','ok');
+    }catch(e){toast('讀取 PDF 失敗：'+(e.message||e),'err');}
   },
   'pdft-raw-go':()=>{
     const raw=($('pdft-raw')?$('pdft-raw').value:'')||'';
@@ -2544,9 +2788,9 @@ const ACTIONS={
       dd.rewardMonths=(dd.rewardMonths||[]).filter(r=>!r.demo);
       const rebG=new Map();   /* 回贈按「月結單指紋＋卡＋月份」分組，先加總再一次入帳 */
       /* 既有同鍵筆數（多重集）：重複匯入只會略過「鍵重複」的部分，同一份結單內兩筆相同的真實消費仍會入帳 */
-      const txCnt=new Map(),crCnt=new Map();
-      for(const t of dd.transactions){if(t.demo)continue;const k=t.cardId+'|'+t.date+'|'+t.amount+'|'+t.merchant;txCnt.set(k,(txCnt.get(k)||0)+1);}
-      for(const c of dd.credits){if(c.demo)continue;const k=c.cardId+'|'+c.date+'|'+c.amount+'|'+c.kind+'|'+c.merchant;crCnt.set(k,(crCnt.get(k)||0)+1);}
+      const txRecs=new Map(),crRecs=new Map();
+      for(const t of dd.transactions){if(t.demo)continue;const k=t.cardId+'|'+t.date+'|'+r2(t.amount)+'|'+t.merchant;if(!txRecs.has(k))txRecs.set(k,[]);txRecs.get(k).push(t);}
+      for(const c of dd.credits){if(c.demo)continue;const k=c.cardId+'|'+c.date+'|'+r2(c.amount)+'|'+c.kind+'|'+c.merchant;if(!crRecs.has(k))crRecs.set(k,[]);crRecs.get(k).push(c);}
       const seenT=new Map(),seenC=new Map();
       for(const r of IMPPDF.rows){
         const amount=num(r.amount);
@@ -2559,19 +2803,23 @@ const ACTIONS={
         if(kind==='tx'){
           const k=cardId+'|'+date+'|'+r2(amount)+'|'+merchant;
           const j=seenT.get(k)||0;seenT.set(k,j+1);
-          if(j<(txCnt.get(k)||0)){dup++;continue;}   /* 重複匯入同一筆 → 略過 */
+          const ex=(txRecs.get(k)||[])[j];
+          if(ex){if(r.sid)ex.sid=r.sid;if(r.fp)ex.fp=r.fp;dup++;continue;}   /* 重複匯入同一筆 → 略過並補上 PDF 關聯 */
           const ctx={date,amount,category:r.category||'other',online:r.online===true};
-          if(addTxFromCtx(ctx,cardId,merchant,{})){ok++;rememberLabel(dd,merchant,ctx.category,ctx.online,'manual');}
+          const nt=addTxFromCtx(ctx,cardId,merchant,{});
+          if(nt){nt.fp=r.fp||undefined;nt.sid=r.sid||undefined;ok++;rememberLabel(dd,merchant,ctx.category,ctx.online,'manual');}
         }else if(kind==='rebate'){
           const month=date.slice(0,7),fp=String(r.fp||'');
           const key=fp+'|'+cardId+'|'+month;
-          const g=rebG.get(key)||{fp,cardId,month,amount:0};
-          g.amount+=amount;rebG.set(key,g);
+          const g=rebG.get(key)||{fp,cardId,month,amount:0,sid:null,merch:[]};
+          g.amount+=amount;g.sid=g.sid||r.sid||null;if(r.merchant&&g.merch.indexOf(r.merchant)<0)g.merch.push(r.merchant);
+          rebG.set(key,g);
         }else{
           const k=cardId+'|'+date+'|'+r2(amount)+'|'+kind+'|'+merchant;
           const j=seenC.get(k)||0;seenC.set(k,j+1);
-          if(j<(crCnt.get(k)||0)){dup++;continue;}   /* 重複匯入同一筆 → 略過 */
-          dd.credits.push({id:uid(),date,cardId,amount:r2(amount),merchant,kind,note:''});cred++;
+          const ex=(crRecs.get(k)||[])[j];
+          if(ex){if(r.sid)ex.sid=r.sid;if(r.fp)ex.fp=r.fp;dup++;continue;}   /* 重複匯入同一筆 → 略過並補上 PDF 關聯 */
+          dd.credits.push({id:uid(),date,cardId,amount:r2(amount),merchant,kind,note:'',fp:r.fp||undefined,sid:r.sid||undefined});cred++;
         }
       }
       /* 月結單回贈 → 彙入「回贈月結」；同一份月結單（指紋相同）重複匯入時覆蓋舊值，不重複累加 */
@@ -2584,16 +2832,53 @@ const ACTIONS={
           }
           return true;                                        /* 手動輸入／其他月結單 → 保留（分列累加） */
         });
-        dd.rewardMonths.push({id:uid(),cardId:g.cardId,month:g.month,amount:r2(g.amount),note:'月結單匯入',fp:g.fp||undefined});
+        dd.rewardMonths.push({id:uid(),cardId:g.cardId,month:g.month,amount:r2(g.amount),note:'月結單匯入',fp:g.fp||undefined,sid:g.sid||undefined,srcMerch:g.merch.join(' | ')||undefined});
         reb++;
       }
     });
+    /* 確認入帳 → PDF 原件存入本機 IndexedDB（僅本機保存，不上雲端不佔 localStorage） */
+    if(IMPPDF.pdfs&&IMPPDF.pdfs.length){
+      for(const p of IMPPDF.pdfs){
+        pdfPut(p.sid,{name:p.name,data:p.buf,fp:p.fp,importedAt:Date.now(),size:p.buf.byteLength});
+      }
+    }
     closeSheet();
-    toast('已匯入消費 '+ok+' 筆、月結回贈 '+reb+' 筆、還款/退款 '+cred+' 筆'+(dup?'（略過重複 '+dup+' 筆）':'')+(skip?'（略過 '+skip+' 筆）':''),'ok');
-    IMPPDF.chat=null;IMPPDF.rows=[];IMPPDF.openEdits={};   /* 清空對話與暫存：交易已入帳 */
+    toast('已匯入消費 '+ok+' 筆、月結回贈 '+reb+' 筆、還款/退款 '+cred+' 筆'+(dup?'（略過重複 '+dup+' 筆）':'')+(skip?'（略過 '+skip+' 筆）':'')+'；之後點任何一筆的 📄 可跳回原單高亮對賬','ok');
+    IMPPDF.chat=null;IMPPDF.rows=[];IMPPDF.openEdits={};IMPPDF.pdfs=null;   /* 清空對話與暫存：交易已入帳 */
     UI.screen='records';render();
   },
   'cred-open':()=>openSheet(creditsSheet()),
+  /* ---- 月結單 PDF 對賬 ---- */
+  'pdf-view':d=>{
+    const kind=d.kind||'tx';
+    let rec=null;
+    if(kind==='tx')rec=S.data.transactions.find(t=>t.id===d.id);
+    else if(kind==='cred')rec=S.data.credits.find(c=>c.id===d.id);
+    else rec=S.data.rewardMonths.find(r=>r.id===d.id);
+    if(!rec)return;
+    if(!rec.sid){toast('此記錄匯入時未保存 PDF 原件（舊記錄或手動新增）；把該月結單重新匯入一次即可自動關聯，重複筆數會略過不會重複入帳','err');return;}
+    pdfViewOpen(rec.sid,pdfFocusOf(rec));
+  },
+  'pdf-lib':()=>pdfLibSheet(),
+  'pdf-lib-open':d=>pdfViewOpen(d.sid,null),
+  'pdf-lib-del':d=>{
+    confirmSheet('刪除月結單原件','刪除這份 PDF 原件？已入帳的記錄不受影響，只是不能再跳回查看。','刪除',async()=>{
+      await pdfDel(d.sid);
+      toast('已刪除','ok');
+      pdfLibSheet();
+    });
+  },
+  'pdf-lib-clear':()=>confirmSheet('清除全部 PDF 原件','刪除所有已保存的月結單 PDF？已入帳的記錄不受影響。','全部刪除',async()=>{
+    for(const s of await pdfAll()){await pdfDel(s.sid);}
+    toast('已清除全部 PDF 原件','ok');
+    pdfLibSheet();
+  }),
+  'pdf-page':d=>{
+    const p=PDFVIEW.page+Number(d.p||0);
+    if(p<1||p>PDFVIEW.numPages)return;
+    PDFVIEW.page=p;
+    pdfRenderPage().catch(e=>toast('渲染失敗：'+(e.message||e),'err'));
+  },
   'cred-del':d=>confirmSheet('刪除記錄','刪除此回贈／還款記錄？','刪除',()=>{
     mutate(dd=>{dd.credits=(dd.credits||[]).filter(c=>c.id!==d.id);});toast('已刪除','ok');openSheet(creditsSheet());
   }),
