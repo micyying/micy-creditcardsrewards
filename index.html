@@ -1572,7 +1572,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</details>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.9 · 月結單PDF對賬：點一筆即跳回原單高亮</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.10 · AI連線診斷：失敗一鍵重試＋測試連線</span></div>
   <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -2209,13 +2209,35 @@ async function pdfLibSheet(){
 /* 支援多輪對話：prompt 可為字串（單輪）或 messages 陣列（含 system 與歷史，AI 有記憶） */
 async function aiChat(prompt){
   const c=getAiCfg();
+  const base=((c.base||'').trim()||AI_DEF.base).replace(/\/+$/,'');
   const msgs=Array.isArray(prompt)?prompt:[{role:'user',content:prompt}];
-  const res=await fetch((c.base||'').replace(/\/+$/,'')+'/chat/completions',
-    {method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+c.key},
-     body:JSON.stringify({model:c.model||'gpt-4o-mini',temperature:0,messages:msgs})});
+  const ac=('AbortController' in window)?new AbortController():null;
+  const timer=ac?setTimeout(()=>ac.abort(),120000):null;   /* 120 秒逾時：AI 慢可以，但別無限掛著 */
+  let res;
+  try{
+    res=await fetch(base+'/chat/completions',
+      {method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+c.key},
+       body:JSON.stringify({model:c.model||'gpt-4o-mini',temperature:0,messages:msgs}),signal:ac?ac.signal:undefined});
+  }catch(e){
+    throw new Error(aiNetErr(e,base));   /* Safari 的「Load failed」＝請求根本沒送到伺服器，翻譯成可操作的原因 */
+  }finally{if(timer)clearTimeout(timer);}
   if(!res.ok){let m='HTTP '+res.status;try{const j=await res.json();m=(j.error&&j.error.message)||m;}catch(e){}throw new Error(m);}
   const j=await res.json();
   return (j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
+}
+/* 網路層錯誤（Load failed / Failed to fetch）：fetch 連 HTTP 回應都沒拿到。列出常見原因與當前目標主機，方便自查 */
+function aiNetErr(e,base){
+  let host=base;
+  try{host=new URL(base).host;}catch(x){}
+  if(e&&e.name==='AbortError')return '逾時（120 秒無回應），請再試一次';
+  const s=String((e&&e.message)||e);
+  if(e instanceof TypeError||/load failed|failed to fetch|networkerror|network request|err_name/i.test(s)){
+    const off=(typeof navigator!=='undefined'&&navigator.onLine===false)?'偵測到裝置目前離線。':'';
+    return '連不到 AI 服務（'+host+'）。'+off
+      +'常見原因：① 網路不穩／VPN 或 iOS「攔截內容」擋了此網域 ② 介面地址填錯 ③ 此服務不允許瀏覽器直接呼叫（CORS）。'
+      +'可到「設定 → AI 智能標記」按「測試連線」診斷。';
+  }
+  return s;
 }
 /* ============ AI 對話標記助手：跟用戶對話修正標記，有記憶（對話歷史）與學習（知識庫） ============ */
 function aiChatSysPrompt(){
@@ -2274,9 +2296,33 @@ function aiApplyReply(r){
   }
   return {fixed,learned,forgot,notes};
 }
+/* 發送一句到 AI（送出與重試共用）：失敗時錯誤泡泡附 retryText，可直接一鍵重發，不必重打整段 */
+async function aiChatSendText(text){
+  if(IMPPDF.chatBusy)return;
+  IMPPDF.chat=IMPPDF.chat||[];
+  IMPPDF.chat.push({role:'user',content:text});
+  IMPPDF.chatBusy=true;
+  openSheet(aiChatSheet());
+  const l=$('ai-chat-log');if(l)l.scrollTop=l.scrollHeight;
+  try{
+    const res=await aiChat([{role:'system',content:aiChatSysPrompt()}].concat(IMPPDF.chat));
+    const r=aiParseReply(res);
+    const meta=aiApplyReply(r);
+    meta.say=String(r.say||'…');
+    IMPPDF.chat.push({role:'assistant',content:String(res),meta});
+    if(meta.fixed||meta.learned||meta.forgot)toast('已修正 '+meta.fixed+' 筆、學習 '+meta.learned+' 條記憶'+(meta.forgot?'、忘記 '+meta.forgot+' 條':''),'ok');
+  }catch(e){
+    IMPPDF.chat.push({role:'assistant',content:'',meta:{say:'連線失敗：'+(e.message||e),err:true,retryText:text}});
+    toast('AI 對話失敗，詳見泡泡內說明（可一鍵重試）','err');
+  }
+  IMPPDF.chatBusy=false;
+  openSheet(aiChatSheet());
+  const l2=$('ai-chat-log');if(l2)l2.scrollTop=l2.scrollHeight;
+  const i2=$('ai-chat-in');if(i2)i2.focus();
+}
 function aiChatSheet(){
   const chat=IMPPDF.chat||[],busy=!!IMPPDF.chatBusy;
-  const log=chat.map(m=>{
+  const log=chat.map((m,idx)=>{
     if(m.role==='user')return '<div style="display:flex;justify-content:flex-end;margin:8px 0"><div style="max-width:86%;background:var(--pri,#6C5CE7);color:#fff;border-radius:14px 14px 4px 14px;padding:9px 13px;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word">'+esc(m.content)+'</div></div>';
     const mt=m.meta||{};
     const tags=[];
@@ -2285,7 +2331,9 @@ function aiChatSheet(){
     if(mt.forgot)tags.push('已忘記 '+mt.forgot+' 條');
     return '<div style="display:flex;justify-content:flex-start;margin:8px 0"><div style="max-width:86%;background:#F1F2F6;color:var(--ink,#222);border-radius:14px 14px 14px 4px;padding:9px 13px;font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word'+(mt.err?';color:var(--bad,#D64545)':'')+'">'
       +esc(mt.say||'…')+(tags.length?'<div style="margin-top:6px;font-size:11.5px;color:#0E9663;font-weight:700">'+tags.join(' · ')+'</div>':'')
-      +(mt.notes&&mt.notes.length?'<div style="margin-top:4px;font-size:11.5px;color:#0E9663">'+esc(mt.notes.join('、'))+'</div>':'')+'</div></div>';
+      +(mt.notes&&mt.notes.length?'<div style="margin-top:4px;font-size:11.5px;color:#0E9663">'+esc(mt.notes.join('、'))+'</div>':'')
+      +(mt.err&&mt.retryText?'<div style="margin-top:7px"><button class="btn btn-sm btn-ghost" data-action="ai-chat-retry" data-i="'+idx+'">↻ 重試這句</button></div>':'')
+      +'</div></div>';
   }).join('');
   const busyBubble=busy?'<div style="display:flex;justify-content:flex-start;margin:8px 0"><div style="background:#F1F2F6;border-radius:14px 14px 14px 4px;padding:9px 13px;font-size:13.5px;color:var(--muted,#777)">AI 思考中…</div></div>':'';
   const rowsRef=IMPPDF.rows.map((r,i)=>{
@@ -2375,11 +2423,12 @@ function pdfImportSheet(step){
 function aiSheetHTML(){
   const c=getAiCfg();
   return `<div class="s-head">AI 智能標記設定</div>
-  <p class="s-sub">填入你自有的大模型 API（OpenAI 相容介面）。Key 只存在這台裝置瀏覽器，不會上傳或寫入程式。</p>
-  <div class="field"><label class="f-lbl">OpenAI 相容介面地址</label><input id="ai-base" value="${esc(c.base||'https://api.openai.com/v1')}"></div>
+  <p class="s-sub">填入你自有的大模型 API（OpenAI 相容介面）。Key 只存在這台裝置瀏覽器，不會上傳或寫入程式。若對話常見「連線失敗：Load failed」，多為網路／VPN／攔截器擋了此網域，或地址填錯，可先按測試連線診斷。</p>
+  <div class="field"><label class="f-lbl">OpenAI 相容介面地址</label><input id="ai-base" value="${esc(c.base||'https://api.openai.com/v1')}" placeholder="https://api.openai.com/v1"></div>
   <div class="field"><label class="f-lbl">API Key</label><input id="ai-key" type="password" value="${esc(c.key||'')}" placeholder="sk-..."></div>
   <div class="field"><label class="f-lbl">模型名稱</label><input id="ai-model" value="${esc(c.model||'gpt-4o-mini')}"></div>
-  <div class="s-actions"><button class="btn btn-primary" data-action="ai-save">儲存</button></div>`;
+  <div id="ai-test-out" class="mini" style="margin:6px 0 0;white-space:pre-wrap;word-break:break-word"></div>
+  <div class="s-actions"><button class="btn btn-ghost" data-action="ai-test">測試連線</button><button class="btn btn-primary" data-action="ai-save">儲存</button></div>`;
 }
 function creditsSheet(){
   const list=(S.data.credits||[]).slice().sort((a,b)=>b.date<a.date?-1:1).map(cm=>{
@@ -2728,31 +2777,22 @@ const ACTIONS={
     else if(f==='card'){r.cardId=v;}   /* 修正：卡片下拉欄位對應 row.cardId，否則改了不生效 */
     else r[f]=v;},
   'ai-chat-open':()=>{IMPPDF.chat=IMPPDF.chat||[];openSheet(aiChatSheet());const l=$('ai-chat-log');if(l)l.scrollTop=l.scrollHeight;},
-  'ai-chat-send':async()=>{
+  'ai-chat-send':()=>{
     if(IMPPDF.chatBusy)return;
     const inp=$('ai-chat-in');
     const text=String(inp&&inp.value||'').trim();
     if(!text)return;
-    IMPPDF.chat=IMPPDF.chat||[];
-    IMPPDF.chat.push({role:'user',content:text});
-    IMPPDF.chatBusy=true;
-    openSheet(aiChatSheet());
-    const l=$('ai-chat-log');if(l)l.scrollTop=l.scrollHeight;
-    try{
-      const res=await aiChat([{role:'system',content:aiChatSysPrompt()}].concat(IMPPDF.chat));
-      const r=aiParseReply(res);
-      const meta=aiApplyReply(r);
-      meta.say=String(r.say||'…');
-      IMPPDF.chat.push({role:'assistant',content:String(res),meta});
-      if(meta.fixed||meta.learned||meta.forgot)toast('已修正 '+meta.fixed+' 筆、學習 '+meta.learned+' 條記憶'+(meta.forgot?'、忘記 '+meta.forgot+' 條':''),'ok');
-    }catch(e){
-      IMPPDF.chat.push({role:'assistant',content:'',meta:{say:'連線失敗：'+(e.message||e),err:true}});
-      toast('AI 對話失敗：'+(e.message||e),'err');
-    }
-    IMPPDF.chatBusy=false;
-    openSheet(aiChatSheet());
-    const l2=$('ai-chat-log');if(l2)l2.scrollTop=l2.scrollHeight;
-    const i2=$('ai-chat-in');if(i2)i2.focus();
+    if(inp)inp.value='';   /* 送出即清空；失敗會留「重試」按鈕，不必重打 */
+    aiChatSendText(text);
+  },
+  'ai-chat-retry':d=>{
+    if(IMPPDF.chatBusy)return;
+    const i=+d.i;const m=IMPPDF.chat&&IMPPDF.chat[i];
+    if(!m||!m.meta||!m.meta.retryText)return;
+    const text=m.meta.retryText;
+    IMPPDF.chat.splice(i,1);                                                        /* 移除錯誤泡泡 */
+    if(IMPPDF.chat[i-1]&&IMPPDF.chat[i-1].role==='user')IMPPDF.chat.splice(i-1,1);   /* 移除失敗的那句，重發不重複 */
+    aiChatSendText(text);
   },
   'ai-chat-back':()=>openSheet(pdfImportSheet(2)),
   'ai-chat-clear':()=>{IMPPDF.chat=[];openSheet(aiChatSheet());},
@@ -2883,6 +2923,28 @@ const ACTIONS={
     mutate(dd=>{dd.credits=(dd.credits||[]).filter(c=>c.id!==d.id);});toast('已刪除','ok');openSheet(creditsSheet());
   }),
   'ai-open':()=>openSheet(aiSheetHTML()),
+  'ai-test':async(d,t)=>{
+    const btn=t;
+    const base=($('ai-base').value||'').trim()||AI_DEF.base;
+    const key=($('ai-key').value||'').trim();
+    const model=($('ai-model').value||'').trim()||AI_DEF.model;
+    const done=msg=>{const o=$('ai-test-out');if(o)o.textContent=msg;if(btn){btn.disabled=false;btn.textContent='測試連線';}};
+    if(btn){btn.disabled=true;btn.textContent='測試中…';}
+    if(!/^https?:\/\//.test(base)){done('✗ 地址須以 http(s):// 開頭，目前是：'+base);return;}
+    const ac=('AbortController' in window)?new AbortController():null;
+    const timer=ac?setTimeout(()=>ac.abort(),20000):null;
+    try{
+      const t0=Date.now();
+      const res=await fetch(base.replace(/\/+$/,'')+'/models',{headers:{'Authorization':'Bearer '+key},signal:ac?ac.signal:undefined});
+      const ms=Date.now()-t0;
+      if(res.ok)done('✓ 連線成功（'+ms+'ms）。地址與 Key 正常，模型 '+model+'。記得按「儲存」。');
+      else if(res.status===401||res.status===403)done('✗ 網路通了，但 Key 無效（HTTP '+res.status+'）。請檢查 API Key 是否正確／有效。');
+      else if(res.status===404)done('△ 網路通了（HTTP 404：此服務沒有 /models 清單，部分代理如此，屬正常）。若 AI 對話仍失敗，可能是模型名稱不對。');
+      else done('△ 收到 HTTP '+res.status+'：地址可達但被服務端拒絕，請對照服務文件確認。');
+    }catch(e){
+      done('✗ '+aiNetErr(e,base));
+    }finally{if(timer)clearTimeout(timer);}
+  },
   'ai-save':()=>{
     let c={on:true,base:($('ai-base').value||'').trim(),key:($('ai-key').value||'').trim(),model:($('ai-model').value||'').trim()||'gpt-4o-mini'};
     if(!c.key){toast('請輸入 API Key','err');return;}
