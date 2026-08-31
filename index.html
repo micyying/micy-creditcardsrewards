@@ -747,7 +747,7 @@ function credibilityFor(cardId){
     if(tx.cardId!==cardId||tx.demo)continue;
     add(tx.date.slice(0,7),tx.expectedReward||0,tx.actualReward||0);
   }
-  for(const rm of S.data.rewardMonths){if(rm.cardId===cardId&&!rm.demo)add(rm.month,0,rm.amount||0);}
+  for(const rm of S.data.rewardMonths){if(rm.cardId===cardId&&!rm.demo)add(rm.month,0,rmTotal(rm));}
   for(const c of S.data.credits||[]){if(c.kind==='rebate'&&c.cardId===cardId&&!c.demo)add(String(c.date||'').slice(0,7),0,c.amount||0);}
   const now=nowMonth(),chg=card&&card.rulesChangedAt?String(card.rulesChangedAt).slice(0,7):null;
   let w=0,s=0,n=0;
@@ -773,7 +773,7 @@ function credibilityFor(cardId){
 function actualOfMonth(cardId,month){            /* 某卡某月實際入賬（逐筆＋手動＋CR 自動） */
   let tx=0,rm=0,cr=0;
   for(const t of S.data.transactions){if(t.cardId===cardId&&!t.demo&&t.date.slice(0,7)===month)tx+=t.actualReward||0;}
-  for(const r of S.data.rewardMonths){if(r.cardId===cardId&&!r.demo&&r.month===month)rm+=r.amount||0;}
+  for(const r of S.data.rewardMonths){if(r.cardId===cardId&&!r.demo&&r.month===month)rm+=rmTotal(r);}
   for(const c of S.data.credits||[]){if(c.kind==='rebate'&&c.cardId===cardId&&!c.demo&&String(c.date||'').slice(0,7)===month)cr+=c.amount||0;}
   return {tx:r2(tx),rm:r2(rm),cr:r2(cr),total:r2(tx+rm+cr)};
 }
@@ -788,6 +788,15 @@ function rmImplausible(rm){
     if(m===rm.month||m===monthAdd(rm.month,-1))e+=t.expectedReward||0;
   }
   return (rm.amount||0)>Math.max(e*4,500);
+}
+/* 里程／積分約等值換算率（手動記錄時可覆寫）：1 里程≈HK$0.06（亞洲萬里通常見估值）、1 積分≈HK$0.004（AEON 250分＝HK$1） */
+const MILE_HKD=0.06,PT_HKD=0.004;
+/* 月結回贈折合總值＝現金＋里程約值＋積分約值；舊記錄未存約值時按預設率即時計，避免版本升級後數字跳變 */
+function rmTotal(rm){
+  if(!rm)return 0;
+  const mv=rm.miles>0?(rm.milesVal!=null?rm.milesVal:r2(rm.miles*MILE_HKD)):0;
+  const pv=rm.points>0?(rm.pointsVal!=null?rm.pointsVal:r2(rm.points*PT_HKD)):0;
+  return r2((rm.amount||0)+mv+pv);
 }
 function guessCategory(desc){
   const l=learnedLabel(desc);
@@ -1343,11 +1352,15 @@ function recordsHTML(){
       const card=cardById(rm.cardId);
       const warn=rmImplausible(rm)?' <span class="b" style="background:#c2410c;color:#fff">⚠ 金額異常</span>':'';
       const pdfBtn=rm.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="rm" data-id="${rm.id}" title="跳回月結單原件，高亮此筆對賬">📄</button>`:'';
+      /* 里程／積分帶約等值港幣：3,500 里 ≈HK$210 · 25,000 分 ≈HK$100（舊記錄未存約值時按預設率即時計） */
+      const mi=rm.miles>0?Number(rm.miles).toLocaleString('en-HK')+' 里≈'+fmtHKD(rm.milesVal!=null?rm.milesVal:r2(rm.miles*MILE_HKD)):'';
+      const po=rm.points>0?Number(rm.points).toLocaleString('en-HK')+' 分≈'+fmtHKD(rm.pointsVal!=null?rm.pointsVal:r2(rm.points*PT_HKD)):'';
+      const extra=(mi||po)?`<small class="amt-dim">${[mi,po].filter(Boolean).join(' · ')}</small>`:'';
       return `<div class="row" data-action="rm-edit" data-id="${rm.id}">
       <div class="row-ico">💰</div>
       <div class="row-main"><div class="row-t1">${esc(card?card.name:'已刪卡片')} ${rm.demo?'<span class="b b-demo">示例</span>':''}${warn}</div>
       <div class="row-t2">${monthLabel(rm.month)} 實際入賬${rm.note?' · '+esc(rm.note):''}${pdfBtn}</div></div>
-      <div class="row-amt amt-good">${fmtHKD(rm.amount)}</div></div>`;
+      <div class="row-amt amt-good">${fmtHKD(rm.amount)}${extra}</div></div>`;
     }).join('');
     const anyWarn=rms.some(rm=>rmImplausible(rm));
     /* 回贈/還款置頂：信用卡還款、退款、舊版回贈，讓「回贈月結」即便尚無月結回贈也有內容 */
@@ -1362,14 +1375,14 @@ function recordsHTML(){
       <button class="btn btn-sm btn-ghost" data-action="cred-del" data-id="${c.id}">刪除</button></div>`;
     }).join('');
     return `${tabsHTML('rm')}
-    <section class="panel" style="margin-bottom:2px"><button class="btn btn-primary btn-block" data-action="rm-add">新增月結回贈</button></section>
     ${monNavHTML('rec')}
     <section class="panel"><h2 class="p-title">回贈/還款</h2>
     ${credRows||'<div class="mini">本月無回贈／還款／退款入賬記錄。</div>'}
     <button class="btn btn-ghost btn-block" style="margin-top:10px" data-action="cred-open">查看全部回贈/還款</button></section>
+    <section class="panel" style="margin-bottom:2px"><button class="btn btn-primary btn-block" data-action="rm-add">新增月結回贈</button></section>
     <section class="panel"><h2 class="p-title">月結回贈</h2>
     ${anyWarn?'<div class="mini" style="color:#c2410c;margin-bottom:6px">⚠ 有金額遠高於當月預計回贈，可能誤把還款或重複匯入計入；點擊該筆可修正金額。</div>':''}
-    ${rows||'<div class="mini">本月未有月結回贈記錄<br>銀行月結單出咗之後，在這裡記錄實際入賬總額</div>'}</section>`;
+    ${rows||'<div class="mini">本月未有月結回贈記錄<br>銀行月結單出咗之後，在這裡記錄實際入賬——現金、里程、積分都得</div>'}</section>`;
   }
   const txs=txsOfMonth(m).filter(t=>(UI.recCard==='all'||t.cardId===UI.recCard)&&(UI.recCat==='all'||t.category===UI.recCat))
     .sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
@@ -1440,10 +1453,14 @@ function rmSheet(rmId){
   const preCard=rm?rm.cardId:(UI.recCard!=='all'?UI.recCard:(S.data.cards[0]||{}).id);
   const cardSel=S.data.cards.map(c=>`<option value="${c.id}" ${preCard===c.id?'selected':''}>${esc(c.name)}</option>`).join('');
   return `<div class="s-head">${rm?'編輯月結回贈':'新增月結回贈'}</div>
-  <p class="s-sub">記錄銀行月結單顯示的實際回贈總額，用於比對「預計」與「實際」。</p>
+  <p class="s-sub">記錄銀行月結單顯示的實際回贈——現金總額之外，也可記錄里程與積分（各自自動換算約等值港幣），用於比對「預計」與「實際」。</p>
   <div class="frow"><div class="field"><label class="f-lbl">卡片</label><select id="m-card">${cardSel}</select></div>
   <div class="field"><label class="f-lbl">月份</label><input type="month" id="m-month" value="${rm?rm.month:UI.recMonth}"></div></div>
-  <div class="field"><label class="f-lbl">回贈總額 HK$</label><input type="number" id="m-amt" step="0.01" min="0" value="${rm?rm.amount:''}"></div>
+  <div class="field"><label class="f-lbl">現金回贈總額 HK$</label><input type="number" id="m-amt" step="0.01" min="0" value="${rm?rm.amount:''}" placeholder="純里程／積分卡可留空填 0"></div>
+  <div class="frow"><div class="field"><label class="f-lbl">里程</label><input type="number" id="m-miles" step="1" min="0" value="${rm&&rm.miles?rm.miles:''}" placeholder="如 3500"></div>
+  <div class="field"><label class="f-lbl">積分</label><input type="number" id="m-pts" step="1" min="0" value="${rm&&rm.points?rm.points:''}" placeholder="如 25000"></div></div>
+  <div class="frow"><div class="field"><label class="f-lbl">里程約值 HK$（約等於）</label><input type="number" id="m-mval" step="0.01" min="0" value="${rm&&rm.milesVal!=null?rm.milesVal:''}" placeholder="留空＝按 HK$0.06/里自動換算"></div>
+  <div class="field"><label class="f-lbl">積分約值 HK$（約等於）</label><input type="number" id="m-pval" step="0.01" min="0" value="${rm&&rm.pointsVal!=null?rm.pointsVal:''}" placeholder="留空＝按 250分＝HK$1 自動換算"></div></div>
   <div class="field"><label class="f-lbl">備註</label><input id="m-note" value="${esc(rm?rm.note||'':'')}"></div>
   <div class="s-actions">${rm?`<button class="btn btn-danger" data-action="rm-del" data-id="${rm.id}">刪除</button>`:''}
   <button class="btn btn-primary" data-action="rm-save" data-id="${rmId||''}">儲存</button></div>`;
@@ -1460,7 +1477,7 @@ function analysisHTML(){
   }
   const byCard=new Map();
   for(const t of txs){const c=byCard.get(t.cardId)||{spend:0,exp:0,act:0};c.spend+=t.amount;c.exp+=t.expectedReward||0;byCard.set(t.cardId,c);}
-  for(const rm of rms){const c=byCard.get(rm.cardId)||{spend:0,exp:0,act:0};c.act+=rm.amount;byCard.set(rm.cardId,c);}
+  for(const rm of rms){const c=byCard.get(rm.cardId)||{spend:0,exp:0,act:0};c.act+=rmTotal(rm);byCard.set(rm.cardId,c);}
   for(const c of S.data.credits||[]){if(c.kind==='rebate'&&String(c.date||'').slice(0,7)===m){const o=byCard.get(c.cardId)||{spend:0,exp:0,act:0};o.act+=c.amount||0;byCard.set(c.cardId,o);}}
   const perf=[...byCard.entries()].map(([id,c])=>({card:cardById(id),...c,cred:credibilityFor(id)})).sort((a,b)=>b.spend-a.spend);
   const perfRows=perf.map(p=>{
@@ -1497,7 +1514,7 @@ function analysisHTML(){
   const months=[];for(let i=5;i>=0;i--)months.push(monthAdd(m,-i));
   const stats=months.map(mm=>{let e=0,a=0;
     for(const t of txsOfMonth(mm)){e+=t.expectedReward||0;a+=t.actualReward||0;}
-    for(const r of S.data.rewardMonths){if(r.month===mm&&!r.demo)a+=r.amount||0;}
+    for(const r of S.data.rewardMonths){if(r.month===mm&&!r.demo)a+=rmTotal(r);}
     for(const c of S.data.credits||[]){if(c.kind==='rebate'&&!c.demo&&String(c.date||'').slice(0,7)===mm)a+=c.amount||0;}
     return {mm,e,a};});
   const maxT=Math.max(1,...stats.map(s=>Math.max(s.e,s.a)));
@@ -1572,7 +1589,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</details>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.11 · AI直接改單：對話可改金額/日期/卡片/類型、刪除或新增整行</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.12 · 回贈月結可記里程/積分並自動換算約等值港幣</span></div>
   <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -1677,7 +1694,7 @@ function loadDemo(){
       const tx=addTxFromCtx({date:day(mo,dd),category:cat,amount,online},cardId,merchant,{demo:true});
       if(tx&&actual!=null){tx.actualReward=r2(tx.expectedReward*actual);tx.actualDate=day(monthAdd(mo,1),5);}
     }
-    d.rewardMonths.push({id:uid(),cardId:'card-hsbc-red',month:prev,amount:46.2,demo:true,note:'月結單回贈'});
+    d.rewardMonths.push({id:uid(),cardId:'card-hsbc-red',month:prev,amount:0,demo:true,note:'月結回贈（積分）',points:4620,pointsVal:46.2});   /* 示範積分記法：4,620 分 ≈HK$46.20 */
     d.rewardMonths.push({id:uid(),cardId:'card-boc-go',month:prev,amount:55.4,demo:true,note:'月結單回贈'});
   });
   toast('已載入示例資料（可隨時移除）','ok');
@@ -2658,15 +2675,25 @@ const ACTIONS={
     const amount=num($('m-amt').value);
     const cardId=$('m-card').value;
     const month=$('m-month').value;
+    const miles=Math.max(0,Math.round(num($('m-miles').value)));
+    const points=Math.max(0,Math.round(num($('m-pts').value)));
     if(!cardId){toast('請先新增卡片','err');return;}
-    if(!month||!(amount>0)){toast('請輸入月份與金額','err');return;}
+    if(!month||!(amount>0)&&!(miles>0)&&!(points>0)){toast('請輸入月份，以及現金金額或里程／積分','err');return;}
+    /* 約值留空 → 按預設率自動換算（每里 HK$0.06、每分 HK$0.004）；手動填了則尊重手動值 */
+    let milesVal=num($('m-mval').value);
+    if(miles>0&&!(milesVal>0))milesVal=r2(miles*MILE_HKD);
+    let pointsVal=num($('m-pval').value);
+    if(points>0&&!(pointsVal>0))pointsVal=r2(points*PT_HKD);
+    const equiv=r2(amount+(miles>0?milesVal:0)+(points>0?pointsVal:0));   /* 折合總值（現金＋里程約值＋積分約值） */
     mutate(dd=>{
-      const obj={cardId,month,amount:r2(amount),note:$('m-note').value.trim()};
+      const obj={cardId,month,amount:r2(amount),note:$('m-note').value.trim(),
+        miles:miles>0?miles:undefined,points:points>0?points:undefined,
+        milesVal:miles>0?milesVal:undefined,pointsVal:points>0?pointsVal:undefined};
       if(d.id){const r=dd.rewardMonths.find(r=>r.id===d.id);
         if(r)Object.assign(r,obj);else dd.rewardMonths.push({id:uid(),...obj});}
       else dd.rewardMonths.push({id:uid(),...obj});
     });
-    closeSheet();toast('已儲存','ok');
+    closeSheet();toast('已儲存'+((miles>0||points>0)?'（折合約 '+fmtHKD(equiv)+'）':''),'ok');
   },
   'rm-del':d=>confirmSheet('刪除月結回贈','確定刪除此記錄？','刪除',()=>{
     mutate(dd=>{dd.rewardMonths=dd.rewardMonths.filter(r=>r.id!==d.id);});
