@@ -381,7 +381,7 @@ const SEED_CATEGORIES=[
  {id:'dining',name:'餐飲',emoji:'🍽️',keywords:['餐廳','RESTAURANT','MAXIM','美心','麥當勞','MCDONALD','MCD','KFC','必勝客','PIZZA','大家樂','大快活','STARBUCK','星巴克','PACIFIC COFFEE','CAFE','CAFÉ','SUSHI','壽司','爭鮮','譚仔','MARUTAI','一蘭','拉麵','RAMEN','FOOD','茶餐廳','SUBWAY','DOMINO','DELIVER','FOODPANDA','戶戶送','KEEFOOD','KIKURO','牛角','AYAM','客家好味']},
  {id:'grocery',name:'超市雜貨',emoji:'🛒',keywords:['WELLCOME','惠康','PARKN','百佳','AEON','UNY','CITYSUPER','CITY SUPER','U SELECT','優品360','759','阿信屋','7-ELEVEN','7 ELEVEN','OK MART','OK便利店','萬寧','MANNINGS','屈臣氏','WATSON','MARKET PLACE','TASTE','FUSION','華潤萬家','U購']},
  {id:'online',name:'網購',emoji:'🛍️',keywords:['AMAZON','TAOBAO','淘寶','TMALL','天貓','JD.COM','京東','HKTV','ZALORA','SHEIN','TEMU','SHOPEE','EBAY','ALIEXPRESS','APPLE.COM','GOOGLE','STRIPE','SHOPIFY','閃購','HOSHIKO']},
- {id:'transport',name:'交通',emoji:'🚇',keywords:['MTR','港鐵','OCTOPUS','八達通','KMB','九巴','CITYBUS','城巴','NWFB','新巴','LONG WIN','TAXI','的士','UBER','HK TAXI','滴滴','GMB','小巴','STAR FERRY','天星小輪','HARBOUR']},
+ {id:'transport',name:'交通',emoji:'🚇',keywords:['MTR','港鐵','OCTOPUS','八達通','KMB','九巴','KOWLOON MOTO','KOWLOON MOTOR','龍運','CITYBUS','城巴','NWFB','新巴','LONG WIN','TAXI','的士','UBER','HK TAXI','滴滴','GMB','小巴','STAR FERRY','天星小輪','HARBOUR']},
  {id:'fuel',name:'汽油',emoji:'⛽',keywords:['SHELL','加德士','CALTEX','ESSO','CNOOC','中石化','SINOPEC','PETRO CHINA','FUEL','油站','CIRCLE K']},
  {id:'telecom',name:'電訊月費',emoji:'📱',keywords:['CSL','SMARTONE','數碼通','3HK','PCCW','HKT','NOW TV','CHINA MOBILE','中國移動','CMHK','SUN MOBILE','1O1O','MYSIM','MO+']},
  {id:'utilities',name:'水電煤',emoji:'💡',keywords:['CLP','中電','HK ELECTRIC','港燈','TOWNGAS','煤氣','WSD','水務署','電費','水費']},
@@ -1805,6 +1805,26 @@ function parseAEON(text,year,stmtMon){
     /* AEON 收款：還款優先、退款→credit、回贈→rebate、其他收款視為還款 */
     out.push({date,amount,merchant:desc,online:guessOnline(desc),category:guessCategory(desc),kind,cardId:cur||undefined});
   }
+  /* 頁尾獎賞計劃 → 折算現金記入回贈：AEON 積分（一般 25000 分 ≈ HK$100 Circle K 消費券 → 1 分 = HK$0.004，
+     歸 Purple/Visa 卡）；WAKU COIN（1 coin = HK$1，歸 Wakuwaku 卡）。入賬日用月結單結單日 */
+  const sd=/Statement ?Date[\s\S]{0,30}?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i.exec(text);
+  const rewDate=(sd&&monNum(sd[2]))?ymd(+sd[1],monNum(sd[2]),+sd[3]):ymd(1,stmtMon,year);
+  const numLine=from=>{for(let k=from;k<Math.min(from+9,lines.length);k++){
+    const m=/^(\d[\d,]*)\s+(\d[\d,]*)\s+(\d[\d,]*)\s+(\d[\d,]*)$/.exec(lines[k]);if(m)return m;}return null;};
+  for(let i=0;i<lines.length;i++){
+    const s=lines[i];
+    if(/Bonus Point Program|積分獎賞計劃/i.test(s)){
+      const m=numLine(i+1);                                  /* 本月賺取 / 換領 / 結餘 / 將到期 */
+      if(m&&+m[1]>0){const pts=+m[1].replace(/,/g,'');
+        const cid=(aeonCards().find(c=>/PURPLE|VISA/i.test(c.name))||{}).id;
+        out.push({date:rewDate,amount:r2(pts*0.004),merchant:'AEON 積分獎賞 '+pts+' 分',online:null,category:'other',kind:'rebate',cardId:cid||undefined});}
+    }else if(/WAKU COIN Reward Program|WAKU COIN ?獎賞計劃/i.test(s)){
+      const m=numLine(i+1);
+      if(m&&+m[1]>0){const cn=+m[1].replace(/,/g,'');
+        const cid=(aeonCards().find(c=>/WAKU/i.test(c.name))||{}).id;
+        out.push({date:rewDate,amount:r2(cn),merchant:'WAKU COIN 獎賞 '+cn+' coin',online:null,category:'other',kind:'rebate',cardId:cid||undefined});}
+    }
+  }
   return out;
 }
 function guessCard(text){
@@ -1862,7 +1882,7 @@ function pageText(items){
   for(const it of items){if(!it.str)continue;const t=it.transform||[1,0,0,1,0,0];const fs=Math.max(4,Math.min(30,it.height||Math.abs(t[3])||8));toks.push({x:t[4],y:t[5],fs,str:it.str,w:it.width||(it.str.length*fs*0.5)});}
   toks.sort((a,b)=>a.y-b.y);const lines=[];
   for(const tk of toks){const tol=Math.max(2,Math.min(3.5,tk.fs*0.4));let L=null;for(const l of lines){if(Math.abs(l.y-tk.y)<=tol){L=l;break;}}if(L){L.toks.push(tk);L.y=(L.y+tk.y)/2;}else lines.push({y:tk.y,toks:[tk]});}
-  lines.sort((a,b)=>a.y-b.y);const out=[];
+  lines.sort((a,b)=>b.y-a.y);const out=[]; /* PDF 座標 Y 軸向上：由大至小 = 頁面由上至下（原本由細至大會令整頁行序上下顛倒） */
   for(const l of lines){l.toks.sort((a,b)=>a.x-b.x);let pe=null;const p=[];for(const w of l.toks){if(pe!=null&&(w.x-pe)>Math.max(1.2,w.fs*0.25))p.push(' ');p.push(w.str);pe=Math.max(pe||0,w.x+w.w);}out.push(p.join('').replace(/[ \t]+/g,' ').trim());}
   return out.filter(Boolean).join('\n');
 }
