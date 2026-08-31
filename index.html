@@ -625,8 +625,10 @@ function migrateData(){
     }
     const cut=new Set();
     for(const [mk,o] of byM){
-      let d=0;for(const v of o.values())if(v>=2)d++;
-      if(d>=6)for(const k of o.keys())cut.add(mk+'|'+k);
+      let d=0,n=0;for(const v of o.values()){n++;if(v>=2)d++;}
+      /* 觸發條件收緊：重複鍵 ≥6 且佔該卡過半才算「整份結單重複匯入」；
+         舊版會把該卡所有鍵都設成只留一筆——同日同額同商家的真實消費（如來回兩程地鐵）會被誤刪 */
+      if(d>=6&&2*d>=n)for(const [k,v] of o){if(v>=2)cut.add(mk+'|'+k);}
     }
     if(cut.size){
       const kept=new Set();
@@ -1589,7 +1591,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</details>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.12 · 回贈月結可記里程/積分並自動換算約等值港幣</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.13 · 月結單匯入即時核對：解析簽賬 vs 結單申報總額，漏抓立刻警示</span></div>
   <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -1874,11 +1876,82 @@ function parseHSBC(text,year,stmtMon){
 /* AEON 綜合月結單（多張卡分頁）：Transaction Date Post Date 詳情 地區 支付方式 金額(CR)
    每個「YOUR CARD ACTIVITIES」分頁以卡名標題行（如「AEON Visa Credit Card(P)」「AEON CARD WAKUWAKU(P)」）開首，
    依標題行把該頁交易對應到正確的 AEON 卡，無需人手逐筆改卡 */
+/* AEON 分頁卡標題行（如「AEON Visa Credit Card(P) 4504-… NAME:…」）→ 對應卡 id（WAKUWAKU、Purple(Visa)、其他 AEON 卡） */
+function aeonCardIdOfHeader(header){
+  const cards=(S.data&&S.data.cards||[]).filter(c=>/AEON/i.test(c.bank||''));
+  if(!cards.length)return null;
+  const H=String(header||'').toUpperCase();
+  const by=re=>cards.find(c=>re.test(c.name.toUpperCase()));
+  if(/WAKUWAKU/.test(H))return (by(/WAKU/)||cards[0]).id;
+  if(/PURPLE|VISA CREDIT CARD/.test(H))return (by(/PURPLE/)||by(/VISA/)||cards[0]).id;
+  const c0=by(/AEON/);if(c0)return c0.id;
+  return cards[0].id;
+}
+/* AEON 結單每卡分頁的申報摘要行：HKD 上月結欠 · HKD 已繳(CR) · HKD 購物簽賬 · HKD 現金預支 · HKD 財務費用 · HKD 其他費用 · HKD 結欠
+   第 3 個金額＝該卡本期「購物簽賬」申報總額；匯入時用它核對解析結果——不符即代表有交易漏抓，立即警示 */
+function aeonDeclared(text){
+  const lines=String(text||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const out=[];let hdr=null;
+  for(const s of lines){
+    if(/^AEON\b/i.test(s)&&/CARD|VISA|CREDIT|WAKU/i.test(s)){hdr=s;continue;}
+    const tk=s.split(/\s+/);const nums=[];let ok=tk.length>6;
+    for(let i=0;i<tk.length&&ok;i++){
+      if(/^HKD$/i.test(tk[i])){const n=tk[++i];if(!/^[\d,]+\.\d\d$/.test(n||''))ok=false;else nums.push(n);}
+      else if(nums.length===2&&/^CR$/i.test(tk[i])){}
+      else ok=false;
+    }
+    if(ok&&nums.length===7&&hdr)out.push({header:hdr,purchase:num(nums[2])});
+  }
+  return out;
+}
+/* AEON 匯入核對：每卡「解析到的購物簽賬」vs「結單申報購物簽賬」
+   申報額＝消費合計 − WAKU COIN 兌換／退款等抵扣（CR 列折抵購物簽賬；頁尾合成的獎勵行 syn 不計）
+   兩種口徑（扣抵扣／不扣）其一相符即算通過；不符＝有交易漏抓或抓錯卡，匯入界面立即警示 */
+function aeonVerify(rows,text){
+  const dec=aeonDeclared(text);if(!dec.length)return [];
+  return dec.map(d=>{
+    const cid=aeonCardIdOfHeader(d.header);
+    const card=(S.data.cards||[]).find(c=>c.id===cid);
+    const mine=(rows||[]).filter(r=>r.cardId===cid);
+    const gross=mine.filter(r=>(r.kind||'tx')==='tx').reduce((s,r)=>s+num(r.amount||0),0);
+    const off=mine.filter(r=>(r.kind==='rebate'||r.kind==='credit')&&!r.syn).reduce((s,r)=>s+num(r.amount||0),0);
+    const net=gross-off;
+    return {cardId:cid,cardName:(card&&card.name)||String(d.header).slice(0,24),declared:d.purchase,gross,off,net,
+      ok:Math.abs(net-d.purchase)<0.005||Math.abs(gross-d.purchase)<0.005};
+  });
+}
+/* 即時核對：按「月結單指紋」把目前待確認的行對回各自結單的申報額（一次匯多份也不會互相污染）；
+   單份結單時，AI 對話新增的無指紋行也計入核對 */
+function aeonVerifyLive(){
+  const sts=IMPPDF.stmts||[];if(!sts.length)return [];
+  const single=sts.length===1,out=[];
+  for(const st of sts){
+    if(out.some(o=>o.fp===st.fp))continue;                       /* 同指紋只核一次 */
+    const rows=IMPPDF.rows.filter(r=>r.fp===st.fp||(single&&!r.fp));
+    out.push(...aeonVerify(rows,st.text).map(v=>(v.fp=st.fp,v)));
+  }
+  return out;
+}
 function parseAEON(text,year,stmtMon){
-  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const rawLines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const TXN=/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(.+?)\s+([\d,]+\.\d\d)\s*(CR)?\s*$/i;
   /* Taobao 等交易商家印在上一行、金額行只有「日期 日期 金額」 */
   const DATED=/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+([\d,]+\.\d\d)\s*(CR)?\s*$/i;
+  /* 商家過長被 PDF 折行：日期行只有商家前半、金額落在下一行（如「…TKO Plaza」/「Hong APPLE PAY 252.00」）→ 先合併成一列再解析 */
+  const HEADLN=/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\S.*)$/;
+  const lines=[];
+  for(let i=0;i<rawLines.length;i++){
+    const s=rawLines[i];
+    if(!/[\d,]+\.\d\d\s*(CR)?$/i.test(s)&&HEADLN.test(s)&&i+1<rawLines.length){
+      const nx=rawLines[i+1];
+      const mm=/^(.+?)\s+([\d,]+\.\d\d)\s*(CR)?$/i.exec(nx)||/^([\d,]+\.\d\d)\s*(CR)?$/i.exec(nx);
+      /* 下一行是「續文＋金額」或純金額，且不是日期行／餘額／匯率備註才合併 */
+      if(mm&&!/^(\d{1,2})\s+[A-Za-z]{3}\s+\d{4}/.test(nx)&&!/^(HKD|PREVIOUS BALANCE|STATEMENT BALANCE|MINIMUM|Note|註|CNY)/i.test(nx)){
+        lines.push(s+' '+nx);i++;continue;
+      }
+    }
+    lines.push(s);
+  }
   const strip=d=>String(d||'').trim()
     .replace(/\s+(APPLE ?PAY|G ?PAY|GPay|AP|GP)\s*$/i,'')
     .replace(/\s+(HONG ?KONG|HONGKONG|HONG)\s+(HKG|HK)\s*$/i,'')
@@ -1941,12 +2014,12 @@ function parseAEON(text,year,stmtMon){
       const m=numLine(i+1);                                  /* 本月賺取 / 換領 / 結餘 / 將到期 */
       if(m&&+m[1]>0){const pts=+m[1].replace(/,/g,'');
         const cid=(aeonCards().find(c=>/PURPLE|VISA/i.test(c.name))||{}).id;
-        out.push({date:rewDate,amount:r2(pts*0.004),merchant:'AEON 積分獎賞 '+pts+' 分',online:null,category:'other',kind:'rebate',cardId:cid||undefined});}
+        out.push({date:rewDate,amount:r2(pts*0.004),merchant:'AEON 積分獎賞 '+pts+' 分',online:null,category:'other',kind:'rebate',cardId:cid||undefined,syn:1});}
     }else if(/WAKU COIN Reward Program|WAKU COIN ?獎賞計劃/i.test(s)){
       const m=numLine(i+1);
       if(m&&+m[1]>0){const cn=+m[1].replace(/,/g,'');
         const cid=(aeonCards().find(c=>/WAKU/i.test(c.name))||{}).id;
-        out.push({date:rewDate,amount:r2(cn),merchant:'WAKU COIN 獎賞 '+cn+' coin',online:null,category:'other',kind:'rebate',cardId:cid||undefined});}
+        out.push({date:rewDate,amount:r2(cn),merchant:'WAKU COIN 獎賞 '+cn+' coin',online:null,category:'other',kind:'rebate',cardId:cid||undefined,syn:1});}
     }
   }
   return out;
@@ -2502,8 +2575,18 @@ function pdfImportSheet(step){
   const counts=['tx','rebate','payment','credit'].filter(k=>kinds[k]).map(k=>KINDS[k].n+' '+kinds[k]).join(' · ');
   const detCards=[...new Set(IMPPDF.rows.map(r=>r.cardId).filter(Boolean))].map(id=>cardById(id)).filter(Boolean);
   const detBanner=detCards.length?`<div style="margin:2px 0 8px;padding:9px 12px;background:#EFF2FE;border:1px solid #DCE1FB;border-radius:11px;font-size:12.5px;color:#2A2A5A">🔍 自動偵測到 ${detCards.map(c=>esc(c.name)).join('、')} 的月結單，已自動幫每筆對應卡片；有誤可逐筆改。</div>`:'';
+  /* AEON 申報核對：漏抓 → 紅色警示；相符 → 綠色確認。AI／手動增刪改後重開面板會即時重算 */
+  const verify=aeonVerifyLive();
+  const vBad=verify.filter(v=>!v.ok),vGood=verify.filter(v=>v.ok);
+  const vBanner=!verify.length?'':
+    (vBad.length?`<div style="margin:6px 0;padding:10px 12px;background:#FDEDED;border:1px solid #F3C6C6;border-radius:12px;font-size:12.5px;color:#8B2424;line-height:1.7"><b>⚠️ 與結單申報不符，可能有交易漏抓</b><br>${vBad.map(v=>{
+      const miss=v.declared>v.net;
+      return esc(v.cardName)+'：解析 '+fmtHKD(v.net)+(v.off>0?'（消費 '+fmtHKD(v.gross)+'−抵扣 '+fmtHKD(v.off)+'）':'')+' ≠ 申報 '+fmtHKD(v.declared)+' → '+(miss?'少了 ':'多了 ')+fmtHKD(Math.abs(v.declared-v.net));
+    }).join('<br>')}<br>請往下逐筆核對是否缺行（折行商家／漏日期），可用 AI 對話補上缺的筆數後再匯入。</div>`:'')+
+    (vGood.length?`<div style="margin:6px 0;padding:9px 12px;background:#ECF7EF;border:1px solid #C9E7D2;border-radius:12px;font-size:12.5px;color:#1F5C36;line-height:1.6">✅ <b>核對相符</b>：${vGood.map(v=>esc(v.cardName)+' 購物簽賬 '+fmtHKD(v.declared)+'＝結單申報').join('；')}，匯入金額與結單完全對得上。</div>`:'');
   return `<div class="s-head">確認月結單交易</div>
   <p class="s-sub">共 ${IMPPDF.rows.length} 筆 · ${counts||'—'}。已自動分類，<b>有問題再逐筆點「修改」編輯</b>（日期／金額／商家／分類／卡片／網上）；你在這裡改的分類會被記住，下次同名商家自動沿用。回贈／還款／退款不進入「刷哪張」推薦。</p>
+  ${vBanner}
   ${detBanner}
   ${aiConfigured()?`<div style="margin:6px 0;display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" data-action="pdft-ai">✨ AI 標記全部</button><button class="btn" style="flex:1" data-action="ai-chat-open">💬 跟 AI 對話修正</button></div>`:''}
   ${pdfReviewRows(IMPPDF.rows)}
@@ -2835,7 +2918,7 @@ const ACTIONS={
   }),
 
   /* ---- 月結單 PDF 匯入 + AI ---- */
-  'pdft-open':()=>{IMPPDF.rows=[];IMPPDF.pdfs=null;IMPPDF.cardId=(S.data.cards[0]||{}).id||'';openSheet(pdfImportSheet(1));},
+  'pdft-open':()=>{IMPPDF.rows=[];IMPPDF.pdfs=null;IMPPDF.stmts=null;IMPPDF.cardId=(S.data.cards[0]||{}).id||'';openSheet(pdfImportSheet(1));},
   'pdft-card':(d,t)=>{IMPPDF.cardId=t.value;},
   'pdft-file':async(d,t)=>{
     const fs=t.files;if(!fs||!fs.length){toast('未選到檔案','err');return;}
@@ -2845,11 +2928,12 @@ const ACTIONS={
     try{
       const segs=await pdfsToTexts(Array.from(fs));
       const lib=await pdfAll();          /* 同一份月結單（指紋相同）重匯 → 沿用原 sid，舊記錄的 PDF 關聯不會斷 */
-      const all=[];let gDet=null;const pdfs=[];
+      const all=[];let gDet=null;const pdfs=[];IMPPDF.stmts=[];
       for(const f of segs){
         const seg=buildRows(f.text);
         if(!seg.length)continue;
         const fp=seg[0].fp;
+        if(!IMPPDF.stmts.some(s=>s.fp===fp))IMPPDF.stmts.push({fp,name:f.name,text:f.text});   /* 留原文供申報核對 */
         const dupF=pdfs.find(p=>p.fp===fp);
         const sid=dupF?dupF.sid:((lib.find(s=>s.fp===fp)||{}).sid)||('st'+Date.now().toString(36)+Math.random().toString(36).slice(2,6));
         seg.forEach(r=>{r.sid=sid;});
@@ -2869,7 +2953,8 @@ const ACTIONS={
     if(!raw.trim()){toast('請貼上月結單文字','err');return;}
     const rows=buildRows(raw);
     if(!rows.length){toast('未能從文字提取交易','err');return;}
-    IMPPDF.rows=rows;openSheet(pdfImportSheet(2));toast('擷取到 '+rows.length+' 筆待確認','ok');
+    IMPPDF.rows=rows;IMPPDF.stmts=[{fp:rows[0].fp,name:'貼上文字',text:raw}];   /* 留原文供申報核對 */
+    openSheet(pdfImportSheet(2));toast('擷取到 '+rows.length+' 筆待確認','ok');
   },
   'pdft-back':()=>openSheet(pdfImportSheet(1)),
   'pdft-bottom':()=>{const sh=$('sheet');if(sh){sh.scrollTo({top:sh.scrollHeight,behavior:'smooth'});}},
@@ -2987,7 +3072,7 @@ const ACTIONS={
     }
     closeSheet();
     toast('已匯入消費 '+ok+' 筆、月結回贈 '+reb+' 筆、還款/退款 '+cred+' 筆'+(dup?'（略過重複 '+dup+' 筆）':'')+(skip?'（略過 '+skip+' 筆）':'')+'；之後點任何一筆的 📄 可跳回原單高亮對賬','ok');
-    IMPPDF.chat=null;IMPPDF.rows=[];IMPPDF.openEdits={};IMPPDF.pdfs=null;   /* 清空對話與暫存：交易已入帳 */
+    IMPPDF.chat=null;IMPPDF.rows=[];IMPPDF.openEdits={};IMPPDF.pdfs=null;IMPPDF.stmts=null;   /* 清空對話與暫存：交易已入帳 */
     UI.screen='records';render();
   },
   'cred-open':()=>openSheet(creditsSheet()),
