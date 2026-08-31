@@ -584,13 +584,80 @@ function load(){
   if(!S.data.rewardMonths)S.data.rewardMonths=[];
   if(!S.data.credits)S.data.credits=[];
   if(!S.data.knowledge)S.data.knowledge=[];
+  if(migrateData())saveLocal();
+}
+/* 資料遷移：載入本機、雲端同步覆蓋、JSON 匯入／備份還原後皆會套用，回傳是否有改動 */
+function migrateData(){
   /* 遷移 v2.7：把誤判為「回贈」的信用卡還款改回「payment」，避免大額還款計入回贈
      （僅針對描述含還款字眼的 cred 記錄，保留退款/真正回贈不動） */
   let mig=false;
   for(const c of S.data.credits){
     if((c.kind==='rebate'||c.kind==='credit')&&PAY_DESC.test(String(c.merchant||c.note||''))){c.kind='payment';mig=true;}
   }
-  if(mig)saveLocal();
+  /* 遷移 v2.8：修正「7 月 Chill 卡回贈一千多」的三個根源——
+     1) 同一份月結單重複匯入造成的重複交易／入賬記錄；
+     2) 舊版把大額還款（如 PAYMENT THANK YOU 414.74 CR）誤計為回贈，並在「回贈月結」累積；
+     3) 舊版逐筆回贈（credits）與月結回贈（rewardMonths）並存 → 雙重計算。 */
+  let mig28=0;
+  {
+    /* 整份月結單重複匯入的偵測：同一卡出現 ≥6 種「同日同額同名」重複鍵，
+       只可能是整份重匯（零星的同日重複消費不會這樣）→ 每鍵只留一筆。
+       以「卡」為單位偵測（非按月），同一份結單的交易常跨兩個月 */
+    const byM=new Map();
+    for(const t of S.data.transactions){
+      if(t.demo)continue;
+      const mk=t.cardId;
+      const k=t.date+'|'+t.amount+'|'+t.merchant;
+      const o=byM.get(mk)||new Map();
+      o.set(k,(o.get(k)||0)+1);byM.set(mk,o);
+    }
+    const cut=new Set();
+    for(const [mk,o] of byM){
+      let d=0;for(const v of o.values())if(v>=2)d++;
+      if(d>=6)for(const k of o.keys())cut.add(mk+'|'+k);
+    }
+    if(cut.size){
+      const kept=new Set();
+      S.data.transactions=S.data.transactions.filter(t=>{
+        if(t.demo)return true;
+        const ck=t.cardId+'|'+t.date+'|'+t.amount+'|'+t.merchant;
+        if(!cut.has(ck))return true;
+        if(kept.has(ck)){mig28++;return false;}
+        kept.add(ck);return true;
+      });
+    }
+    const seenC=new Set();
+    S.data.credits=S.data.credits.filter(c=>{
+      if(c.demo)return true;
+      const k=c.cardId+'|'+c.date+'|'+c.amount+'|'+c.kind+'|'+c.merchant;
+      if(seenC.has(k)){mig28++;return false;}
+      seenC.add(k);return true;
+    });
+    S.data.rewardMonths=(S.data.rewardMonths||[]).filter(r=>{
+      if(!rmImplausible(r))return true;
+      const n=String(r.note||'');
+      if(n.trim()&&n.indexOf('月結單')<0)return true;   /* 用戶手動輸入且有備註 → 不自動動 */
+      mig28++;return false;                              /* 舊版匯入的異常值 → 移除，重匯月結單即恢復正確值 */
+    });
+    const reb=new Map();                                  /* 舊逐筆回贈 → 併入月結回贈（同卡同月取較大值） */
+    for(const c of S.data.credits){
+      if(c.kind!=='rebate'||c.demo)continue;
+      const m=String(c.date||'').slice(0,7);if(m.length<7)continue;
+      const k=c.cardId+'|'+m;
+      reb.set(k,(reb.get(k)||0)+(c.amount||0));
+    }
+    if(reb.size){
+      for(const [k,v] of reb){
+        const [cardId,m]=k.split('|');
+        const ex=S.data.rewardMonths.find(r=>r.cardId===cardId&&r.month===m&&!r.demo);
+        if(ex)ex.amount=r2(Math.max(ex.amount||0,v));
+        else S.data.rewardMonths.push({id:uid(),cardId,month:m,amount:r2(v),note:'月結單匯入'});
+      }
+      S.data.credits=S.data.credits.filter(c=>c.kind!=='rebate'||c.demo);
+      mig28+=reb.size;
+    }
+  }
+  return mig||mig28>0;
 }
 function saveLocal(){try{localStorage.setItem(LS_DATA,JSON.stringify(S.data));}catch(e){toast('本機儲存失敗：資料可能過大','err');}}
 function mutate(fn){
@@ -697,6 +764,18 @@ function actualOfMonth(cardId,month){            /* 某卡某月實際入賬（�
   for(const r of S.data.rewardMonths){if(r.cardId===cardId&&!r.demo&&r.month===month)rm+=r.amount||0;}
   for(const c of S.data.credits||[]){if(c.kind==='rebate'&&c.cardId===cardId&&!c.demo&&String(c.date||'').slice(0,7)===month)cr+=c.amount||0;}
   return {tx:r2(tx),rm:r2(rm),cr:r2(cr),total:r2(tx+rm+cr)};
+}
+/* 月結回贈金額是否明顯不合理：回贈一般反映本月＋上月消費（下月入賬），
+   遠超（>4 倍且 >$500）即可能是還款誤計或重複匯入累積 */
+function rmImplausible(rm){
+  if(!rm||rm.demo)return false;
+  let e=0;
+  for(const t of S.data.transactions){
+    if(t.cardId!==rm.cardId||t.demo)continue;
+    const m=t.date.slice(0,7);
+    if(m===rm.month||m===monthAdd(rm.month,-1))e+=t.expectedReward||0;
+  }
+  return (rm.amount||0)>Math.max(e*4,500);
 }
 function guessCategory(desc){
   const l=learnedLabel(desc);
@@ -841,7 +920,7 @@ async function pullNow(silent){
       const data=await unsealDoc(m,chunks.join(''));
       if(!data||data.app!=='micy-shuana')throw new Error('雲端資料格式不正確');
       snapshotLocal('同步覆蓋前備份');
-      S.data=data;saveLocal();render(true);
+      S.data=data;migrateData();saveLocal();render(true);   /* 雲端覆蓋後同樣套用 v2.7/v2.8 修正，避免舊污染資料復活 */
       toast('已從雲端同步最新資料','ok');
       setSyncState('ok');
     }else{
@@ -904,7 +983,7 @@ async function enterSync(code){
   if(S.data.cards.length||S.data.transactions.length){
     snapshotLocal('登入同步前本機備份');
   }
-  S.data=data;saveLocal();
+  S.data=data;migrateData();saveLocal();   /* 登入採用雲端資料後同樣套用修正 */
   S.data.settings.ready=true;
   S.data.meta.rev=Math.max(S.data.meta.rev||0,0);
   saveLocal();render(true);
@@ -1057,6 +1136,7 @@ function replaceData(newData){
   if(!S.data.meta)S.data.meta={rev:0,savedAt:0};
   if(!S.data.settings)S.data.settings={};
   S.data.settings.ready=true;
+  migrateData();   /* 匯入／還原的舊資料同樣套用 v2.7/v2.8 修正 */
   S.data.meta.rev=(S.data.meta.rev||0)+1;
   S.data.meta.savedAt=Date.now();
   saveLocal();schedulePush();render();
@@ -1249,12 +1329,14 @@ function recordsHTML(){
     const rms=S.data.rewardMonths.filter(r=>r.month===m&&(UI.recCard==='all'||r.cardId===UI.recCard));
     const rows=rms.map(rm=>{
       const card=cardById(rm.cardId);
+      const warn=rmImplausible(rm)?' <span class="b" style="background:#c2410c;color:#fff">⚠ 金額異常</span>':'';
       return `<div class="row" data-action="rm-edit" data-id="${rm.id}">
       <div class="row-ico">💰</div>
-      <div class="row-main"><div class="row-t1">${esc(card?card.name:'已刪卡片')} ${rm.demo?'<span class="b b-demo">示例</span>':''}</div>
+      <div class="row-main"><div class="row-t1">${esc(card?card.name:'已刪卡片')} ${rm.demo?'<span class="b b-demo">示例</span>':''}${warn}</div>
       <div class="row-t2">${monthLabel(rm.month)} 實際入賬${rm.note?' · '+esc(rm.note):''}</div></div>
       <div class="row-amt amt-good">${fmtHKD(rm.amount)}</div></div>`;
     }).join('');
+    const anyWarn=rms.some(rm=>rmImplausible(rm));
     /* 回贈/還款置頂：信用卡還款、退款、舊版回贈，讓「回贈月結」即便尚無月結回贈也有內容 */
     const creds=(S.data.credits||[]).filter(c=>!c.demo)
       .filter(c=>String(c.date||'').slice(0,7)===m&&(UI.recCard==='all'||c.cardId===UI.recCard))
@@ -1272,6 +1354,7 @@ function recordsHTML(){
     ${credRows||'<div class="mini">本月無回贈／還款／退款入賬記錄。</div>'}
     <button class="btn btn-ghost btn-block" style="margin-top:10px" data-action="cred-open">查看全部回贈/還款</button></section>
     <section class="panel"><h2 class="p-title">月結回贈</h2>
+    ${anyWarn?'<div class="mini" style="color:#c2410c;margin-bottom:6px">⚠ 有金額遠高於當月預計回贈，可能誤把還款或重複匯入計入；點擊該筆可修正金額。</div>':''}
     ${rows||'<div class="mini">本月未有月結回贈記錄<br>銀行月結單出咗之後，在這裡記錄實際入賬總額</div>'}</section>`;
   }
   const txs=txsOfMonth(m).filter(t=>(UI.recCard==='all'||t.cardId===UI.recCard)&&(UI.recCat==='all'||t.category===UI.recCat))
@@ -1472,7 +1555,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</details>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.7 · 月結單回贈自動對應＋卡片自動偵測</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.8 · 回贈異常修正＋重複匯入防護＋GO卡結單日期修正</span></div>
   <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -1635,11 +1718,18 @@ function stmtMeta(text){
   else if(/AEON|WAKUWAKU|AEON VISA/.test(U))bank='aeon';
   let year=new Date().getFullYear(),mon=new Date().getMonth()+1;
   if(bank==='boc'||bank==='hsbc'||bank==='mox'||bank==='aeon'){
-    // HSBC / AEON: "Statement Date 17 JUL 2026"
-    if(bank==='hsbc'||bank==='aeon'){
-      const b=/Statement ?Date[\s\S]{0,25}?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i.exec(U);
-      if(b&&monNum(b[2])){year=+b[3];mon=monNum(b[2]);}
-      else{const m=/\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b/i.exec(U);if(m&&monNum(m[2])){year=+m[3];mon=monNum(m[2]);}}
+    /* BOC / HSBC / AEON：先找「結單日期」標籤（Chill 卡與標籤同行；GO 卡日期在標籤下一行；
+       AEON 為 "Statement Date 結單日期: 12 Jul 2026"），再找 "Statement Date"，
+       最後退回全文首個 19-JUL-2026（連字）或 17 JUL 2026（空格）日期，避免誤用當前月份 */
+    if(bank==='boc'||bank==='hsbc'||bank==='aeon'){
+      let m=/結單日期[\s\S]{0,90}?(\d{1,2})[-\s]+([A-Za-z]{3})[-\s]+(\d{4})/i.exec(U);
+      if(!m||!monNum(m[2]))m=/Statement ?Date[\s\S]{0,90}?(\d{1,2})[-\s]+([A-Za-z]{3})[-\s]+(\d{4})/i.exec(U);
+      if(m&&monNum(m[2])){year=+m[3];mon=monNum(m[2]);}
+      else{
+        const d=/\b(\d{1,2})-([A-Za-z]{3})-(\d{4})\b/.exec(U);
+        if(d&&monNum(d[2])){year=+d[3];mon=monNum(d[2]);}
+        else{const s=/\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b/i.exec(U);if(s&&monNum(s[2])){year=+s[3];mon=monNum(s[2]);}}
+      }
     }
     // Mox: statement period "10 Jun 2026 - 9 Jul 2026" -> use period end
     else if(bank==='mox'){
@@ -1807,7 +1897,7 @@ function parseAEON(text,year,stmtMon){
   }
   /* 頁尾獎賞計劃 → 折算現金記入回贈：AEON 積分（一般 25000 分 ≈ HK$100 Circle K 消費券 → 1 分 = HK$0.004，
      歸 Purple/Visa 卡）；WAKU COIN（1 coin = HK$1，歸 Wakuwaku 卡）。入賬日用月結單結單日 */
-  const sd=/Statement ?Date[\s\S]{0,30}?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i.exec(text);
+  const sd=/Statement ?Date[\s\S]{0,90}?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i.exec(text)||/結單日期[\s\S]{0,90}?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/i.exec(text);
   const rewDate=(sd&&monNum(sd[2]))?ymd(+sd[1],monNum(sd[2]),+sd[3]):ymd(1,stmtMon,year);
   const numLine=from=>{for(let k=from;k<Math.min(from+9,lines.length);k++){
     const m=/^(\d[\d,]*)\s+(\d[\d,]*)\s+(\d[\d,]*)\s+(\d[\d,]*)$/.exec(lines[k]);if(m)return m;}return null;};
@@ -1857,7 +1947,8 @@ function buildRows(text){
     :det.bank==='aeon'?parseAEON(text,det.year,det.mon)
     :[];
   const gid=guessCard(text)||null,def=(S.data.cards[0]||{}).id||null;
-  rows.forEach(r=>{if(!r.cardId)r.cardId=gid||IMPPDF.cardId||def;if(!r.merchant&&r.kind!=='tx')r.merchant=(r.kind==='payment'?'信用卡還款':'退款');});
+  const fp=det.bank+'|'+det.year+'-'+String(det.mon).padStart(2,'0');   /* 月結單指紋：同一份重複匯入可識別 */
+  rows.forEach(r=>{if(!r.cardId)r.cardId=gid||IMPPDF.cardId||def;r.fp=fp;if(!r.merchant&&r.kind!=='tx')r.merchant=(r.kind==='payment'?'信用卡還款':'退款');});
   return rows;
 }
 async function pdfsToTexts(files){
@@ -2445,12 +2536,18 @@ const ACTIONS={
   },
   'pdft-save':()=>{
     if(!IMPPDF.rows.length){toast('沒有可匯入的交易','err');return;}
-    let ok=0,reb=0,cred=0,skip=0;
+    let ok=0,reb=0,cred=0,skip=0,dup=0;
     mutate(dd=>{
       /* 導入真實月結單後，自動清除示例（demo）交易與回贈紀錄 */
       dd.transactions=(dd.transactions||[]).filter(t=>!t.demo);
       dd.credits=(dd.credits||[]).filter(c=>!c.demo);
       dd.rewardMonths=(dd.rewardMonths||[]).filter(r=>!r.demo);
+      const rebG=new Map();   /* 回贈按「月結單指紋＋卡＋月份」分組，先加總再一次入帳 */
+      /* 既有同鍵筆數（多重集）：重複匯入只會略過「鍵重複」的部分，同一份結單內兩筆相同的真實消費仍會入帳 */
+      const txCnt=new Map(),crCnt=new Map();
+      for(const t of dd.transactions){if(t.demo)continue;const k=t.cardId+'|'+t.date+'|'+t.amount+'|'+t.merchant;txCnt.set(k,(txCnt.get(k)||0)+1);}
+      for(const c of dd.credits){if(c.demo)continue;const k=c.cardId+'|'+c.date+'|'+c.amount+'|'+c.kind+'|'+c.merchant;crCnt.set(k,(crCnt.get(k)||0)+1);}
+      const seenT=new Map(),seenC=new Map();
       for(const r of IMPPDF.rows){
         const amount=num(r.amount);
         const date=(typeof r.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(r.date))?r.date:todayStr();
@@ -2460,20 +2557,39 @@ const ACTIONS={
         const cardId=r.cardId||(S.data.cards[0]||{}).id;
         if(!cardId){skip++;continue;}
         if(kind==='tx'){
+          const k=cardId+'|'+date+'|'+r2(amount)+'|'+merchant;
+          const j=seenT.get(k)||0;seenT.set(k,j+1);
+          if(j<(txCnt.get(k)||0)){dup++;continue;}   /* 重複匯入同一筆 → 略過 */
           const ctx={date,amount,category:r.category||'other',online:r.online===true};
           if(addTxFromCtx(ctx,cardId,merchant,{})){ok++;rememberLabel(dd,merchant,ctx.category,ctx.online,'manual');}
         }else if(kind==='rebate'){
-          /* 月結單的回贈 → 彙入「回贈月結」，同一卡同一月自動累加為實際入賬總額 */
-          const month=date.slice(0,7);
-          const ex=dd.rewardMonths.find(x=>x.cardId===cardId&&x.month===month);
-          if(ex){ex.amount=r2((ex.amount||0)+amount);}
-          else{dd.rewardMonths.push({id:uid(),cardId,month,amount:r2(amount),note:'月結單匯入'});}
-          reb++;
-        }else{dd.credits.push({id:uid(),date,cardId,amount:r2(amount),merchant,kind,note:''});cred++;}
+          const month=date.slice(0,7),fp=String(r.fp||'');
+          const key=fp+'|'+cardId+'|'+month;
+          const g=rebG.get(key)||{fp,cardId,month,amount:0};
+          g.amount+=amount;rebG.set(key,g);
+        }else{
+          const k=cardId+'|'+date+'|'+r2(amount)+'|'+kind+'|'+merchant;
+          const j=seenC.get(k)||0;seenC.set(k,j+1);
+          if(j<(crCnt.get(k)||0)){dup++;continue;}   /* 重複匯入同一筆 → 略過 */
+          dd.credits.push({id:uid(),date,cardId,amount:r2(amount),merchant,kind,note:''});cred++;
+        }
+      }
+      /* 月結單回贈 → 彙入「回贈月結」；同一份月結單（指紋相同）重複匯入時覆蓋舊值，不重複累加 */
+      for(const g of rebG.values()){
+        dd.rewardMonths=dd.rewardMonths.filter(x=>{
+          if(x.demo||x.cardId!==g.cardId||x.month!==g.month)return true;
+          if(g.fp){
+            if(x.fp===g.fp)return false;                     /* 同一份月結單重匯 → 覆蓋 */
+            if(!x.fp&&(String(x.note||'').indexOf('月結單')>=0||!String(x.note||'').trim()))return false;  /* 舊版匯入值 → 以新值取代 */
+          }
+          return true;                                        /* 手動輸入／其他月結單 → 保留（分列累加） */
+        });
+        dd.rewardMonths.push({id:uid(),cardId:g.cardId,month:g.month,amount:r2(g.amount),note:'月結單匯入',fp:g.fp||undefined});
+        reb++;
       }
     });
     closeSheet();
-    toast('已匯入消費 '+ok+' 筆、月結回贈 '+reb+' 筆、還款/退款 '+cred+' 筆'+(skip?'（略過 '+skip+' 筆）':''),'ok');
+    toast('已匯入消費 '+ok+' 筆、月結回贈 '+reb+' 筆、還款/退款 '+cred+' 筆'+(dup?'（略過重複 '+dup+' 筆）':'')+(skip?'（略過 '+skip+' 筆）':''),'ok');
     IMPPDF.chat=null;IMPPDF.rows=[];IMPPDF.openEdits={};   /* 清空對話與暫存：交易已入帳 */
     UI.screen='records';render();
   },
