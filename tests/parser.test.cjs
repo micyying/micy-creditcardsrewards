@@ -1,10 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const P=require('../versions/v2.15.0/parser.js');
-const ChillRewards=require('../versions/v2.15.0/rewards.js');
+const P=require('../versions/v2.15.1/parser.js');
+const ChillRewards=require('../versions/v2.15.1/rewards.js');
 const boc='BOC Chill World Mastercard\nStatement Date 19-JAN-2026\n';
 test('dual dates, cross-year attribution, markers, fees and redemption remain separate',()=>{
  const r=P.parse(boc+'03-JAN 31-DEC ##APPLE.COM/BILL CORK IRL 78.00\n04-JAN 04-JAN CASH REBATE (Dec) 3.00 CR\n04-JAN 04-JAN Offset Spending with Points - BoC Pay+ 4.00 CR\n04-JAN 04-JAN OVERSEAS TRANSACTION FEE 1.50\nODD CENTS TO NEXT BILL 0.50 CR');
- assert.equal(r.rows[0].transaction_date,'2025-12-31');assert.equal(r.rows[0].post_date,'2026-01-03');assert.equal(r.rows[0].record_month,'2026-01');assert.equal(r.rows[0].merchant,'##APPLE.COM/BILL CORK IRL');assert.equal(r.rows[0].merchant_name_normalized,'APPLE.COM/BILL CORK IRL');assert.equal(r.rows[0].merchant_marker,'##');assert.equal(r.rows[0].online,null);assert.equal(r.rows[1].cashback_period,'2025-12');assert.equal(r.rows[2].kind,'reward_offset');assert.equal(r.rows[3].kind,'fee');assert.equal(r.rows[4].kind,'odd_cent');assert.equal(r.rows[0].expected_cashback,null);
+ assert.equal(r.rows[0].transaction_date,'2025-12-31');assert.equal(r.rows[0].post_date,'2026-01-03');assert.equal(r.rows[0].record_month,'2026-01');assert.equal(r.rows[0].merchant,'##APPLE.COM/BILL CORK IRL');assert.equal(r.rows[0].merchant_name_normalized,'APPLE.COM/BILL CORK IRL');assert.equal(r.rows[0].transaction_marker,'##');assert.equal(r.rows[0].online,null);assert.equal(r.rows[1].cashback_period,'2025-12');assert.equal(r.rows[2].kind,'reward_offset');assert.equal(r.rows[3].kind,'fee');assert.equal(r.rows[4].kind,'odd_cent');assert.equal(r.rows[0].expected_cashback,null);
 });
 test('merchant AEON does not change BOC bank; currency switches do not mix balances',()=>{
  const r=P.parse('BOC Go Platinum Card\nStatement Date 18-AUG-2026\nHKD Account No.: 1111-2222-3333-4444\n17-AUG 16-AUG AEON STORE 100.00\nCNY Account No.: 1111-2222-3333-5555\n17-AUG 16-AUG SHOP 100.00');assert.equal(r.meta.bank,'boc');assert.deepEqual(r.rows.map(r=>r.currency),['HKD','CNY']);assert.notEqual(r.rows[0].account_last4,r.rows[1].account_last4);
@@ -33,7 +33,7 @@ test('missing metadata never substitutes today and full statement fingerprint av
  assert.equal(P.parse('BOC Chill no date\n03-JAN 03-JAN SHOP 5.00').rows.length,0);assert.notEqual(P.parse(boc+'03-JAN 03-JAN SHOP 5.00').fp,P.parse(boc+'03-JAN 03-JAN SHOP 6.00').fp);assert.equal(P.date(31,2,2026),null);
 });
 function app(){
- const h=fs.readFileSync(require.resolve('../versions/v2.15.0/index.html'),'utf8');
+ const h=fs.readFileSync(require.resolve('../versions/v2.15.1/index.html'),'utf8');
  const js=[...h.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
  const memory=new Map();const c={document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},StatementParser:P,ChillRewards,Date,console,localStorage:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)},setTimeout:()=>0,clearTimeout:()=>{}};
  vm.createContext(c);vm.runInContext(js,c,{timeout:3000});vm.runInContext('S.data=freshData();S.data.cards=JSON.parse(JSON.stringify(REAL_CARDS));render=()=>{};closeSheet=()=>{};toast=(s)=>{globalThis.lastToast=s;};pdfPut=async()=>{};schedulePush=()=>{};',c);return c;

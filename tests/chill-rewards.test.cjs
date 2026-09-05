@@ -1,5 +1,5 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const R=require('../versions/v2.15.0/rewards.js'),P=require('../versions/v2.15.0/parser.js');
+const R=require('../versions/v2.15.1/rewards.js'),P=require('../versions/v2.15.1/parser.js');
 const tx=(id,merchant,amount,date='2026-05-27',extra={})=>({id,cardId:'card-boc-chill',kind:'tx',currency:'HKD',date,transaction_date:date,merchant,amount,...extra});
 test('Apple 78 yields theoretical 3.59 cash plus .31 points without inventing actual',()=>{
  const t=tx('a','##APPLE.COM/BILL CORK IRL',78),before=JSON.stringify(t),p=R.calculate([t]).results.get(t);
@@ -28,14 +28,14 @@ test('manual channel edits change predictions, not raw markers; cent allocations
  assert.equal(Math.round([...p.results.values()].reduce((s,r)=>s+r.bonus_hkd,0)*100),15000);
 });
 function app(){
- const html=fs.readFileSync(require.resolve('../versions/v2.15.0/index.html'),'utf8');
+ const html=fs.readFileSync(require.resolve('../versions/v2.15.1/index.html'),'utf8');
  const js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(x=>x[1]).join('\n').replace(/boot\(\);\s*$/,'');
  const memory=new Map(),c={ChillRewards:R,StatementParser:P,console,Date,setTimeout:()=>0,clearTimeout:()=>{},localStorage:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}}};
  vm.createContext(c);vm.runInContext(js,c);vm.runInContext('S.data=freshData();S.data.cards=JSON.parse(JSON.stringify(REAL_CARDS));render=()=>{};schedulePush=()=>{};closeSheet=()=>{};toast=()=>{};pdfPut=async()=>{}',c);return c;
 }
 test('existing imported records migrate and imports persist predictions; actual rewards stay separate',async()=>{
- const c=app();c.old=tx('old','##APPLE.COM/BILL CORK IRL',78,undefined,{expectedReward:null,actualReward:3,raw_description:'##APPLE.COM/BILL CORK IRL'});
- vm.runInContext('S.data.transactions=[old];migrateData()',c);assert.equal(c.old.expectedReward,3.9);assert.equal(c.old.actualReward,3);assert.equal(c.old.raw_description,'##APPLE.COM/BILL CORK IRL');assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
+ const c=app();c.old=tx('old','##APPLE.COM/BILL CORK IRL',78,undefined,{merchant_marker:'##',expectedReward:null,actualReward:3,raw_description:'##APPLE.COM/BILL CORK IRL'});
+ vm.runInContext('S.data.transactions=[old];migrateData()',c);assert.equal(c.old.expectedReward,3.9);assert.equal(c.old.actualReward,3);assert.equal(c.old.transaction_marker,'##');assert.equal(Object.hasOwn(c.old,'merchant_marker'),false);assert.equal(c.old.allocated_actual_cashback,null);assert.equal(vm.runInContext('S.data.chillEvidence.length',c),1);assert.equal(c.old.raw_description,'##APPLE.COM/BILL CORK IRL');assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
  c.input='BOC Chill World Mastercard\nStatement Date 19-JUL-2026\n28-JUN 27-JUN ##APPLE.COM/BILL CORK IRL 78.00\n20-JUN 19-JUN 10% & 5% CASH REBATE RETAIL TXN(May) 3.00 CR';
  vm.runInContext('S.data.transactions=[];IMPPDF.rows=buildRows(input);IMPPDF.stmts=[{fp:IMPPDF.rows[0].fp,name:"test",text:input}];IMPPDF.pdfs=[]',c);
  await vm.runInContext('ACTIONS["pdft-save"]()',c);
@@ -45,10 +45,10 @@ test('existing imported records migrate and imports persist predictions; actual 
 });
 test('release root and version use existing correct parser and prediction scripts',()=>{
  const path=require('node:path'),root=path.resolve(__dirname,'..');
- for(const dir of [root,path.join(root,'versions/v2.15.0')]){
+ for(const dir of [root,path.join(root,'versions/v2.15.1')]){
   const html=fs.readFileSync(path.join(dir,'index.html'),'utf8');
   const scripts=[...html.matchAll(/<script src="(\.\/[^\"]+)"/g)].map(m=>m[1]);assert.equal(scripts.length,2);
   for(const file of scripts)assert.ok(fs.existsSync(path.join(dir,file)),file);
-  assert.match(scripts[0],/parser(?:-v2\.15)?\.js/);assert.match(scripts[1],/rewards(?:-v2\.15)?\.js/);
+  assert.match(scripts[0],/parser(?:-v2\.15\.1)?\.js/);assert.match(scripts[1],/rewards(?:-v2\.15\.1)?\.js/);
  }
 });
