@@ -315,7 +315,6 @@ details.panel summary.tgl-summary .p-title{font-size:15px;font-weight:700;margin
 <div id="sheet-wrap" hidden><div class="sheet-bg" data-action="sheet-close"></div><div id="sheet" class="sheet"></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <div id="toasts"></div>
-<script src="./parser-v2.14.js"></script>
 <script>
 'use strict';
 
@@ -484,26 +483,26 @@ function cardFaceURL(c){
   return faceURI({c1:(c&&c.color)||'#6C5CE7',c2:'#3A2F88',bank:(c&&c.name)||'CARD',
     label:(c&&c.name)||'',tag:((c&&c.bank)||'CARD').toUpperCase()});
 }
-/* 真實卡面：cardimgs/ 內為官方公開之卡面圖片（直向卡以原設計呈現） */
+/* 真實卡面：../../cardimgs/ 內為官方公開之卡面圖片（直向卡以原設計呈現） */
 const REAL_CARDS=[
  {id:'card-boc-chill',name:'中銀 Chill 卡',bank:'中銀',color:'#00A58E',baseRate:0.004,demo:false,rules:[{id:'r-boc_chill-1',name:'網購5%（含外幣網購）',category:'online',rate:0.046,capMonth:150,minSpend:0,online:true,start:null,end:null,priority:10},{id:'r-boc_chill-2',name:'機票/酒店5%',category:'travel',rate:0.046,capMonth:150,minSpend:0,online:null,start:null,end:null,priority:20}],org:'mc',
- note:'網購5%/海外5%(實體+網上均適用，無門檻)，Chill商戶10%(需月簽$1,500實體) · 海外及網上簽賬 5% 回贈（推廣至 2026-12-31） · 基本0.4%為積分回贈(非現金)，需於BoC Pay+兌換 · 5%無需額外門檻（狂賞派只限Visa卡，Chill係Mastercard唔合資格） · 5%無需額外門檻 · 狂賞飛另加3%(需App登記，每季累積制，內地/澳門可達6%) · Apple Pay拍卡按商戶類別計回贈（海外5%/Chill商戶10%/一般0.4%），無獨立流動支付加碼',face:'cardimgs/boc_chill.png'},
+ note:'網購5%/海外5%(實體+網上均適用，無門檻)，Chill商戶10%(需月簽$1,500實體) · 海外及網上簽賬 5% 回贈（推廣至 2026-12-31） · 基本0.4%為積分回贈(非現金)，需於BoC Pay+兌換 · 5%無需額外門檻（狂賞派只限Visa卡，Chill係Mastercard唔合資格） · 5%無需額外門檻 · 狂賞飛另加3%(需App登記，每季累積制，內地/澳門可達6%) · Apple Pay拍卡按商戶類別計回贈（海外5%/Chill商戶10%/一般0.4%），無獨立流動支付加碼',face:'../../cardimgs/boc_chill.png'},
  {id:'card-boc-go',name:'中銀 GO 卡 白金版',bank:'中銀',color:'#C0182B',baseRate:0.004,demo:false,rules:[{id:'r-boc_go-1',name:'內地手機簽賬8%（額外）',category:'other',rate:0.076,capMonth:100,minSpend:0,online:null,start:null,end:'2026-09-30',priority:10},{id:'r-boc_go-2',name:'本地手機簽賬4%（額外）',category:'other',rate:0.036,capMonth:100,minSpend:0,online:null,start:null,end:'2026-09-30',priority:20},{id:'r-boc_go-3',name:'海外簽賬2X≈0.8%（額外）',category:'other',rate:0.004,capMonth:0,minSpend:0,online:null,start:null,end:null,priority:30}],org:'mc',
- note:'銀聯鑽石卡：內地手機簽賬8%/本地手機4%(需登記)，指定Go商戶5%現金回贈，海外簽賬2X≈0.8%(不設上限)，銀聯免RMB手續費 · 內地手機 20X／本地手機 10X 積分（推廣至 2026-09-30） · 4%(10X積分＝1X基本+3X優惠嘅額外2X+本推廣額外7X，積分回贈，非現金)。只限指定手機簽賬渠道：雲閃付App二維碼/Apple Pay/Samsung Pay/Huawei Pay/BoC Pay+(冇Google Pay，亦唔包淨BoC Pay) · ⚠️支付寶、微信支付明文除外，連基本積分都冇(0%) · 需登記(7/2-9/30，首35,000名，額滿即止)，推廣至2026/9/30 · 額外積分月上限25,000分=$100(與內地手機共用，主卡附屬卡合併) · 指定Go商戶簽賬不適用(改走5%現金回贈) · 8%(20X積分＝1X基本+3X優惠嘅額外2X+本推廣額外17X，積分回贈，非現金)。只限指定手機簽賬渠道：雲閃付App二維碼/Apple Pay/Samsung Pay/Huawei Pay/BoC Pay+(冇Google Pay，亦唔包淨Bo',face:'cardimgs/boc_go_platinum.png'},
+ note:'銀聯鑽石卡：內地手機簽賬8%/本地手機4%(需登記)，指定Go商戶5%現金回贈，海外簽賬2X≈0.8%(不設上限)，銀聯免RMB手續費 · 內地手機 20X／本地手機 10X 積分（推廣至 2026-09-30） · 4%(10X積分＝1X基本+3X優惠嘅額外2X+本推廣額外7X，積分回贈，非現金)。只限指定手機簽賬渠道：雲閃付App二維碼/Apple Pay/Samsung Pay/Huawei Pay/BoC Pay+(冇Google Pay，亦唔包淨BoC Pay) · ⚠️支付寶、微信支付明文除外，連基本積分都冇(0%) · 需登記(7/2-9/30，首35,000名，額滿即止)，推廣至2026/9/30 · 額外積分月上限25,000分=$100(與內地手機共用，主卡附屬卡合併) · 指定Go商戶簽賬不適用(改走5%現金回贈) · 8%(20X積分＝1X基本+3X優惠嘅額外2X+本推廣額外17X，積分回贈，非現金)。只限指定手機簽賬渠道：雲閃付App二維碼/Apple Pay/Samsung Pay/Huawei Pay/BoC Pay+(冇Google Pay，亦唔包淨Bo',face:'../../cardimgs/boc_go_platinum.png'},
  {id:'card-boc-go-dia',name:'中銀 GO 卡 鑽石版',bank:'中銀',color:'#C9A227',baseRate:0.004,demo:false,rules:[{id:'r-boc_go-1',name:'內地手機簽賬8%（額外）',category:'other',rate:0.076,capMonth:100,minSpend:0,online:null,start:null,end:'2026-09-30',priority:10},{id:'r-boc_go-2',name:'本地手機簽賬4%（額外）',category:'other',rate:0.036,capMonth:100,minSpend:0,online:null,start:null,end:'2026-09-30',priority:20},{id:'r-boc_go-3',name:'海外簽賬2X≈0.8%（額外）',category:'other',rate:0.004,capMonth:0,minSpend:0,online:null,start:null,end:null,priority:30}],org:'mc',
- note:'銀聯鑽石卡：內地手機簽賬8%/本地手機4%(需登記)，指定Go商戶5%現金回贈，海外簽賬2X≈0.8%(不設上限)，銀聯免RMB手續費 · 內地手機 20X／本地手機 10X 積分（推廣至 2026-09-30） · 4%(10X積分＝1X基本+3X優惠嘅額外2X+本推廣額外7X，積分回贈，非現金)。只限指定手機簽賬渠道：雲閃付App二維碼/Apple Pay/Samsung Pay/Huawei Pay/BoC Pay+(冇Google Pay，亦唔包淨BoC Pay) · ⚠️支付寶、微信支付明文除外，連基本積分都冇(0%) · 需登記(7/2-9/30，首35,000名，額滿即止)，推廣至2026/9/30 · 額外積分月上限25,000分=$100(與內地手機共用，主卡附屬卡合併) · 指定Go商戶簽賬不適用(改走5%現金回贈) · 8%(20X積分＝1X基本+3X優惠嘅額外2X+本推廣額外17X，積分回贈，非現金)。只限指定手機簽賬渠道：雲閃付App二維碼/Apple Pay/Samsung Pay/Huawei Pay/BoC Pay+(冇Google Pay，亦唔包淨Bo',face:'cardimgs/boc_go_diamond.png'},
+ note:'銀聯鑽石卡：內地手機簽賬8%/本地手機4%(需登記)，指定Go商戶5%現金回贈，海外簽賬2X≈0.8%(不設上限)，銀聯免RMB手續費 · 內地手機 20X／本地手機 10X 積分（推廣至 2026-09-30） · 4%(10X積分＝1X基本+3X優惠嘅額外2X+本推廣額外7X，積分回贈，非現金)。只限指定手機簽賬渠道：雲閃付App二維碼/Apple Pay/Samsung Pay/Huawei Pay/BoC Pay+(冇Google Pay，亦唔包淨BoC Pay) · ⚠️支付寶、微信支付明文除外，連基本積分都冇(0%) · 需登記(7/2-9/30，首35,000名，額滿即止)，推廣至2026/9/30 · 額外積分月上限25,000分=$100(與內地手機共用，主卡附屬卡合併) · 指定Go商戶簽賬不適用(改走5%現金回贈) · 8%(20X積分＝1X基本+3X優惠嘅額外2X+本推廣額外17X，積分回贈，非現金)。只限指定手機簽賬渠道：雲閃付App二維碼/Apple Pay/Samsung Pay/Huawei Pay/BoC Pay+(冇Google Pay，亦唔包淨Bo',face:'../../cardimgs/boc_go_diamond.png'},
  {id:'card-sc-cathay',name:'渣打 國泰 Mastercard',bank:'渣打',color:'#005C53',baseRate:0.006,demo:false,rules:[{id:'r-sc_cathay-1',name:'餐飲/酒店直訂 $4/里',category:'dining',rate:0.012,capMonth:0,minSpend:0,online:null,start:null,end:null,priority:10},{id:'r-sc_cathay-2',name:'外幣網購/機票OTA $4/里',category:'online',rate:0.014,capMonth:0,minSpend:0,online:true,start:null,end:null,priority:20},{id:'r-sc_cathay-3',name:'機票直訂/酒店直訂 $4/里',category:'travel',rate:0.012,capMonth:0,minSpend:0,online:null,start:null,end:null,priority:30}],org:'mc',
- note:'食飯/酒店/海外$4/里，其他$6/里，AAVS $6/里',face:'cardimgs/sc_cathay.png'},
+ note:'食飯/酒店/海外$4/里，其他$6/里，AAVS $6/里',face:'../../cardimgs/sc_cathay.png'},
  {id:'card-mox',name:'Mox 卡（無年費虛擬卡）',bank:'Mox',color:'#00B5B0',baseRate:0.01,demo:false,rules:[{id:'r-mox_cb-1',name:'超市3%',category:'grocery',rate:0.02,capMonth:0,minSpend:0,online:null,start:null,end:null,priority:10}],org:'mc',
- note:'基本1%，Mox Plus(出糧≥$25K或結餘≥$600K)2%，超市3%，外幣1.95%手續費 · Mox Plus: 出糧≥$25K/月 或 Mox+(結餘≥$600K)可升至2% · 同一張 Mox Credit 只可揀一個獎賞計劃（CashBack 或 Asia Miles），App 內轉換每次 $50（首次7日內或合資格結餘≥$25萬豁免） · Mox Plus(出糧≥$25K或Mox+結餘≥$600K)可升至2% · 超市3%（Mox Plus同樣3%，無額外加碼）經微信支付/支付寶畀錢嘅超市交易唔計3%',face:'cardimgs/mox.png'},
+ note:'基本1%，Mox Plus(出糧≥$25K或結餘≥$600K)2%，超市3%，外幣1.95%手續費 · Mox Plus: 出糧≥$25K/月 或 Mox+(結餘≥$600K)可升至2% · 同一張 Mox Credit 只可揀一個獎賞計劃（CashBack 或 Asia Miles），App 內轉換每次 $50（首次7日內或合資格結餘≥$25萬豁免） · Mox Plus(出糧≥$25K或Mox+結餘≥$600K)可升至2% · 超市3%（Mox Plus同樣3%，無額外加碼）經微信支付/支付寶畀錢嘅超市交易唔計3%',face:'../../cardimgs/mox.png'},
  {id:'card-aeon-waku',name:'AEON Wakuwaku 卡',bank:'AEON',color:'#1BB6C9',baseRate:0.004,demo:false,rules:[{id:'r-aeon_waku-1',name:'網購6%（含外幣網購）',category:'online',rate:0.056,capMonth:200,minSpend:0,online:true,start:null,end:'2026-08-31',priority:10},{id:'r-aeon_waku-2',name:'日本簽賬3%',category:'travel',rate:0.026,capMonth:200,minSpend:0,online:null,start:null,end:'2026-08-31',priority:20},{id:'r-aeon_waku-3',name:'餐飲1%',category:'dining',rate:0.006,capMonth:200,minSpend:0,online:null,start:null,end:'2026-08-31',priority:30}],org:'mc',
- note:'網購6%(含外幣網購)/日本3%/本地餐飲1%，永久免年費，FX 1.95% · WAKU 簽賬獎賞（推廣至 2026-08-31） · 以月結單日計算（非曆月） · 外幣網購同享6%，與HKD網購共用$200上限 · 以月結單日計算',face:'cardimgs/aeon_wakuwaku.png'},
+ note:'網購6%(含外幣網購)/日本3%/本地餐飲1%，永久免年費，FX 1.95% · WAKU 簽賬獎賞（推廣至 2026-08-31） · 以月結單日計算（非曆月） · 外幣網購同享6%，與HKD網購共用$200上限 · 以月結單日計算',face:'../../cardimgs/aeon_wakuwaku.png'},
  {id:'card-aeon-purple',name:'AEON Purple Card (Visa)',bank:'AEON',color:'#6B2FA0',baseRate:0.004,demo:false,rules:[{id:'r-aeon_purple_vs-1',name:'餐飲6%（手機支付+登記）',category:'dining',rate:0.056,capMonth:100,minSpend:0,online:null,start:null,end:'2027-02-28',priority:10},{id:'r-aeon_purple_vs-2',name:'交通6%（手機支付+登記）',category:'transport',rate:0.056,capMonth:100,minSpend:0,online:null,start:null,end:'2027-02-28',priority:20}],org:'visa',
- note:'食肆/交通手機支付6%，Visa卡，需App登記，環球通用；積分可轉Asia Miles，6%類別≈$2.08/里 · 紫賞生活 15X 積分 (手機6% / 實體2%)（推廣至 2027-02-28） · 6%需綁定Apple Pay等手機支付+App登記，月度~$1,786上限（$100回贈），推廣至2027/2/28（2026/9/1 新一輪，須喺「AEON HK」App 重新登記） · 6%交通費需手機支付(Apple Pay等)+App登記，月度~$1,786上限（$100回贈），推廣至2027/2/28（2026/9/1 新一輪，須喺「AEON HK」App 重新登記） · 一般零售手機支付只有0.4%，6%只限食肆/交通類別',face:'cardimgs/aeon_purple.png'},
+ note:'食肆/交通手機支付6%，Visa卡，需App登記，環球通用；積分可轉Asia Miles，6%類別≈$2.08/里 · 紫賞生活 15X 積分 (手機6% / 實體2%)（推廣至 2027-02-28） · 6%需綁定Apple Pay等手機支付+App登記，月度~$1,786上限（$100回贈），推廣至2027/2/28（2026/9/1 新一輪，須喺「AEON HK」App 重新登記） · 6%交通費需手機支付(Apple Pay等)+App登記，月度~$1,786上限（$100回贈），推廣至2027/2/28（2026/9/1 新一輪，須喺「AEON HK」App 重新登記） · 一般零售手機支付只有0.4%，6%只限食肆/交通類別',face:'../../cardimgs/aeon_purple.png'},
  {id:'card-hsbc-red',name:'滙豐 Red 卡',bank:'滙豐',color:'#D90429',baseRate:0.004,demo:false,rules:[{id:'r-hsbc_red-1',name:'網購4%（含外幣網購）',category:'online',rate:0.036,capMonth:360,minSpend:0,online:true,start:null,end:null,priority:10},{id:'r-hsbc_red-2',name:'機票/酒店網上訂購4%',category:'travel',rate:0.036,capMonth:360,minSpend:0,online:null,start:null,end:null,priority:20}],org:'mc',
- note:'網購4%/$2.5里(月$10K，含外幣網購)+指定商戶8%(月$1,250)，其他0.4% · 最紅網上簽賬獎賞（推廣至 2026-12-31） · 外幣網購同享4%，與HKD網購共用$10,000上限',face:'cardimgs/hsbc_red.png'},
+ note:'網購4%/$2.5里(月$10K，含外幣網購)+指定商戶8%(月$1,250)，其他0.4% · 最紅網上簽賬獎賞（推廣至 2026-12-31） · 外幣網購同享4%，與HKD網購共用$10,000上限',face:'../../cardimgs/hsbc_red.png'},
  {id:'card-hsbc-pulse',name:'滙豐 Pulse 卡',bank:'滙豐',color:'#C8102E',baseRate:0.004,demo:false,rules:[{id:'r-hsbc_pulse-1',name:'中國內地/澳門簽賬 +2%',category:'other',rate:0.02,capMonth:267,minSpend:0,online:null,start:null,end:'2026-12-31',priority:10}],org:'upi',
- note:'銀聯雙幣，人民幣/澳門幣免手續費(其他外幣1%)，中國內地及澳門額外+2%(QR碼/手機支付，推廣至2026/12/31，$80K Cap)，可配最紅自主+Guru · 中國內地簽賬額外 2%（推廣至 2026-12-31） · 內地網購(淘寶等)額外+2%：只限 RMB 經滙豐Reward+/雲閃付App掃碼或 Apple/Google/Samsung Pay · ⚠️用支付寶/微信支付結賬唔計呢個+2%，亦唔計最紅自主額外獎賞錢，只有基本0.4% · 普通網上卡號付款唔計加碼(需Reward+登記，推廣至2026/12/31) · 銀聯免CNY手續費 · 賞世界2.4%+額外2%=4.4% · 中國內地/澳門額外+2%：只限 RMB/MOP 經滙豐Reward+或雲閃付App掃碼，或 Apple/Google/Samsung Pay · ⚠️支付寶/AlipayHK/微信支付掃碼唔計呢個+2%，亦唔計最紅自主額外獎賞錢，只有基本0.4%(唔係4.4%) · 普通拍卡或網上卡號付款一樣唔計 · 需Reward+登記，推廣至2026/12/31，每半年$80K Cap · 銀聯免手續費',face:'cardimgs/hsbc_pulse.png'}
+ note:'銀聯雙幣，人民幣/澳門幣免手續費(其他外幣1%)，中國內地及澳門額外+2%(QR碼/手機支付，推廣至2026/12/31，$80K Cap)，可配最紅自主+Guru · 中國內地簽賬額外 2%（推廣至 2026-12-31） · 內地網購(淘寶等)額外+2%：只限 RMB 經滙豐Reward+/雲閃付App掃碼或 Apple/Google/Samsung Pay · ⚠️用支付寶/微信支付結賬唔計呢個+2%，亦唔計最紅自主額外獎賞錢，只有基本0.4% · 普通網上卡號付款唔計加碼(需Reward+登記，推廣至2026/12/31) · 銀聯免CNY手續費 · 賞世界2.4%+額外2%=4.4% · 中國內地/澳門額外+2%：只限 RMB/MOP 經滙豐Reward+或雲閃付App掃碼，或 Apple/Google/Samsung Pay · ⚠️支付寶/AlipayHK/微信支付掃碼唔計呢個+2%，亦唔計最紅自主額外獎賞錢，只有基本0.4%(唔係4.4%) · 普通拍卡或網上卡號付款一樣唔計 · 需Reward+登記，推廣至2026/12/31，每半年$80K Cap · 銀聯免手續費',face:'../../cardimgs/hsbc_pulse.png'}
 ];
 const FACE_REV=4; /* 卡面版本：改版後強制更新已儲存卡片的真实卡面 */
 const RULES_REV=2; /* 規則版本：碌邊張(swipewhich)同步後強制更新回贈規則（手動改過的卡除外） */
@@ -574,7 +573,7 @@ function ensureRealCards(){
 }
 
 /* ============ state ============ */
-const LS_DATA='micy_shuana_data_v214', LS_SYNC='micy_shuana_sync_v214', LS_BAK='micy_shuana_baks_v214';
+const LS_DATA='micy_shuana_data_v1', LS_SYNC='micy_shuana_sync_v1', LS_BAK='micy_shuana_baks_v1';
 const S={data:null};
 const UI={screen:'ask',recMonth:nowMonth(),anMonth:nowMonth(),recTab:'tx',recCard:'all',recCat:'all',impMonthMode:false};
 
@@ -1020,7 +1019,7 @@ function disconnectSync(){
   render(true);
 }
 /* 本機「好記名稱」：只存於此設備 localStorage，不進同步、不上傳、不寫入程式 */
-const LS_SYNC_ALIAS='micy_shuana_aliases_v214';
+const LS_SYNC_ALIAS='micy_shuana_aliases_v1';
 function getSyncAliasMap(){try{return JSON.parse(localStorage.getItem(LS_SYNC_ALIAS)||'{}')}catch(e){return {}}}
 function getSyncAlias(name){const m=getSyncAliasMap();return name&&m[name]?m[name]:null;}
 function saveSyncAlias(name,code){if(!name||!code)return;const m=getSyncAliasMap();m[String(name)]=code;localStorage.setItem(LS_SYNC_ALIAS,JSON.stringify(m));}
@@ -1363,7 +1362,7 @@ function recordsHTML(){
       <div class="row-ico">💰</div>
       <div class="row-main"><div class="row-t1">${esc(card?card.name:'已刪卡片')} ${rm.demo?'<span class="b b-demo">示例</span>':''}${warn}</div>
       <div class="row-t2">${monthLabel(rm.month)} 實際入賬${rm.note?' · '+esc(rm.note):''}${pdfBtn}</div></div>
-      <div class="row-amt amt-good">${rm.reward_unit?esc(rm.earned+' '+(unitNames[rm.reward_unit]||rm.reward_unit)):fmtHKD(rm.amount)}${rm.reward_unit?'<small class="amt-dim">'+(rm.valuation_hkd==null?'未設定現金估值':fmtHKD(rm.valuation_hkd)+' 估值')+'</small>':extra}</div></div>`;
+      <div class="row-amt amt-good">${fmtHKD(rm.amount)}${extra}</div></div>`;
     }).join('');
     const anyWarn=rms.some(rm=>rmImplausible(rm));
     /* 回贈/還款置頂：信用卡還款、退款、舊版回贈，讓「回贈月結」即便尚無月結回贈也有內容 */
@@ -1374,7 +1373,7 @@ function recordsHTML(){
       const card=cardById(c.cardId),kd=KINDS[c.kind]||KINDS.tx;
       const pdfBtn=c.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="cred" data-id="${c.id}" title="跳回月結單原件，高亮此筆對賬">📄</button>`:'';
       return `<div class="kv"><div><span style="font-size:11px;color:#fff;background:${kd.bg};border-radius:7px;padding:1px 7px">${kd.n}</span>
-      <b>${parserMoney(c)}</b><br><span class="mini">${fmtDateFull(c.date)} · ${esc(c.merchant)}${card?' · '+esc(card.name):''}${pdfBtn}</span></div>
+      <b>${fmtHKD(c.amount)}</b><br><span class="mini">${fmtDateFull(c.date)} · ${esc(c.merchant)}${card?' · '+esc(card.name):''}${pdfBtn}</span></div>
       <button class="btn btn-sm btn-ghost" data-action="cred-del" data-id="${c.id}">刪除</button></div>`;
     }).join('');
     return `${tabsHTML('rm')}
@@ -1405,15 +1404,15 @@ function recordsHTML(){
     <div class="row-ico">${cat.emoji}</div>
     <div class="row-main"><div class="row-t1">${esc(t.merchant)}</div>
     <div class="row-t2">${fmtDateFull(t.date)} · ${esc(card?card.name:'已刪卡片')}${t.online?' · 網上':''}${t.demo?' <span class="b b-demo">示例</span>':''}${t.ruleName?' · '+esc(t.ruleName):''}${pdfBtn}</div></div>
-    <div class="row-amt amt-bad">${fmtHKD(t.amount)}<small class="amt-dim">${hasAct?'實際 '+fmtHKD(t.actualReward):(cAmt!=null?'校準 '+fmtHKD(cAmt)+' · 理論 '+fmtHKD(t.expectedReward):(t.expectedReward==null?'應得回贈待核實':'預計 '+fmtHKD(t.expectedReward)))}</small></div></div>`;
+    <div class="row-amt amt-bad">${fmtHKD(t.amount)}<small class="amt-dim">${hasAct?'實際 '+fmtHKD(t.actualReward):(cAmt!=null?'校準 '+fmtHKD(cAmt)+' · 理論 '+fmtHKD(t.expectedReward):'預計 '+fmtHKD(t.expectedReward))}</small></div></div>`;
   }).join('');
   return `<section class="panel" style="display:flex;gap:10px">
   <button class="btn btn-primary" style="flex:1.8" data-action="pdft-open">匯入月結單 PDF</button>
   <button class="btn btn-ghost" style="flex:1" data-action="tx-add">新增消費</button></section>
   ${tabsHTML('tx')}${monNavHTML('rec')}
   <div class="stat-strip">
-  <div class="stat"><div class="sv">${fmtHKD(spend)}</div><div class="sl">港幣總消費</div></div>
-  <div class="stat s-est"><div class="sv">${fmtHKD(anyCal?calExp:exp)}</div><div class="sl">${txs.some(t=>t.expectedReward==null)?'部分應得回贈待核實':anyCal?'預計回贈·校準':'預計回贈'}</div></div>
+  <div class="stat"><div class="sv">${fmtHKD(spend)}</div><div class="sl">總消費</div></div>
+  <div class="stat s-est"><div class="sv">${fmtHKD(anyCal?calExp:exp)}</div><div class="sl">${anyCal?'預計回贈·校準':'預計回贈'}</div></div>
   <div class="stat s-act"><div class="sv">${fmtHKD(act)}</div><div class="sl">實際回贈</div></div></div>
   <div class="fbar"><select id="f-card" data-change="rec-filter">${cardOpts}</select><select id="f-cat" data-change="rec-filter">${catOpts}</select></div>
   ${rows||'<div class="empty">本月未有記錄<br>可匯入銀行語句（CSV）或手動新增</div>'}
@@ -1592,7 +1591,7 @@ function settingsHTML(){
   ${know||'<div class="mini">未有記憶。匯入月結單並確認分類後會自動累積。</div>'}
   ${know?`<button class="btn btn-danger btn-block" style="margin-top:10px" data-action="know-clear">清空學習記憶</button>`:''}</details>
   <section class="panel"><h2 class="p-title">關於</h2>
-  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.14.0 · 結單解析與來源核對</span></div>
+  <div class="kv"><span class="kk">Micy刷哪張</span><span class="vv">v2.13 · 月結單匯入即時核對：解析簽賬 vs 結單申報總額，漏抓立刻警示</span></div>
   <p class="mini" style="margin-top:8px">回贈規則同步自碌邊張(swipewhich.com)，每日自動檢查更新；規則變更會分版本生效，不會用新規則回溯舊帳單。測算以你的歷史實際回贈（月結單 CR）校準，實際數據優先於理論；匯入愈多月結單，估算愈準。計算結果僅供個人參考。</p></section>`;
 }
 function catSheet(catId){
@@ -1704,7 +1703,7 @@ function loadDemo(){
 }
 
 /* ============ 月結單 PDF 匯入 + AI 標記 ============ */
-const LS_AI='micy_shuana_ai_v214';
+const LS_AI='micy_shuana_ai_v1';
 const AI_DEF={on:false,base:'https://api.openai.com/v1',key:'',model:'gpt-4o-mini'};
 const IMPPDF={rows:[],cardId:null,aiBusy:false};
 const KINDS={tx:{n:'消費',bg:'#6C5CE7'},rebate:{n:'回贈',bg:'#0E9663'},payment:{n:'還款',bg:'#D64545'},credit:{n:'退款',bg:'#B3730E'}};
@@ -2094,7 +2093,7 @@ function pdfDBOpen(){
   if(!window.indexedDB)return Promise.resolve(null);
   return new Promise(res=>{
     try{
-      const rq=indexedDB.open('micy-pdfs-v214',1);
+      const rq=indexedDB.open('micy-pdfs',1);
       rq.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains('pdfs'))db.createObjectStore('pdfs');};
       rq.onsuccess=e=>{PDFDB.db=e.target.result;res(PDFDB.db);};
       rq.onerror=()=>res(null);
@@ -2548,13 +2547,13 @@ function pdfReviewRows(rows){
     const meta=[fmtDateFull(r.date),cat?(cat.emoji+' '+esc(cat.name)):'未分類'];
     if(card)meta.push(esc(card.name));
     if(r.online===true)meta.push('網上');else if(r.online===false)meta.push('門市');
-    const amtGood=r.credit_debit_indicator==='CR';
+    const amtGood=(r.kind==='rebate'||r.kind==='credit');
     return `<div class="row" style="flex-direction:column;align-items:stretch">
     <div style="display:flex;align-items:flex-start;gap:10px">
     <div class="row-ico" style="flex:none;background:${kd.bg};color:#fff;border-radius:8px;font-size:13px;font-weight:700;line-height:30px">${kd.n.slice(0,1)}</div>
     <div style="flex:1;min-width:0"><div class="user-nm" title="${esc(r.merchant||'')}">${esc(r.merchant||'(空白)')}</div><div class="row-t2" style="margin-top:2px">${meta.join(' · ')}</div></div></div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px">
-    <div class="${amtGood?'amt-good':''}" style="font-weight:800">${parserMoney(r)}<small style="font-weight:600;color:var(--muted);margin-left:6px">${kd.n}</small></div>
+    <div class="${amtGood?'amt-good':''}" style="font-weight:800">${fmtHKD(num(r.amount))}<small style="font-weight:600;color:var(--muted);margin-left:6px">${kd.n}</small></div>
     <button class="btn btn-sm btn-ghost" style="flex:none;white-space:nowrap" data-action="pdft-edit" data-i="${i}">修改</button></div></div>`;
   }).join('');
 }
@@ -2573,7 +2572,7 @@ function pdfImportSheet(step){
     <p class="mini" style="margin-top:8px">PDF 只在此裝置解析，不會上傳。解析後提供「確認入帳」介面逐筆核對；<b>確認入帳時 PDF 原件會保存到本機</b>，之後每一筆記錄都能點 📄 跳回原單高亮對賬。</p>`;
   }
   const kinds=IMPPDF.rows.reduce((m,r)=>{const k=r.kind||'tx';m[k]=(m[k]||0)+1;return m;},{});
-  const counts=Object.keys(KINDS).filter(k=>kinds[k]).map(k=>KINDS[k].n+' '+kinds[k]).join(' · ');
+  const counts=['tx','rebate','payment','credit'].filter(k=>kinds[k]).map(k=>KINDS[k].n+' '+kinds[k]).join(' · ');
   const detCards=[...new Set(IMPPDF.rows.map(r=>r.cardId).filter(Boolean))].map(id=>cardById(id)).filter(Boolean);
   const detBanner=detCards.length?`<div style="margin:2px 0 8px;padding:9px 12px;background:#EFF2FE;border:1px solid #DCE1FB;border-radius:11px;font-size:12.5px;color:#2A2A5A">🔍 自動偵測到 ${detCards.map(c=>esc(c.name)).join('、')} 的月結單，已自動幫每筆對應卡片；有誤可逐筆改。</div>`:'';
   /* AEON 申報核對：漏抓 → 紅色警示；相符 → 綠色確認。AI／手動增刪改後重開面板會即時重算 */
@@ -2611,7 +2610,7 @@ function creditsSheet(){
   const list=(S.data.credits||[]).slice().sort((a,b)=>b.date<a.date?-1:1).map(cm=>{
     const kd=KINDS[cm.kind]||KINDS.tx,card=cardById(cm.cardId);
     const pdfBtn=cm.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="cred" data-id="${cm.id}" title="跳回月結單原件，高亮此筆對賬">📄</button>`:'';
-    return `<div class="kv"><div><span style="font-size:12px;color:#fff;background:${kd.bg};border-radius:8px;padding:1px 8px">${kd.n}</span> <b>${parserMoney(cm)}</b><br>
+    return `<div class="kv"><div><span style="font-size:12px;color:#fff;background:${kd.bg};border-radius:8px;padding:1px 8px">${kd.n}</span> <b>${fmtHKD(cm.amount)}</b><br>
     <span class="mini">${fmtDateFull(cm.date)} · ${esc(cm.merchant)}${card?' · '+esc(card.name):''}${pdfBtn}</span></div>
     <button class="btn btn-sm btn-ghost" data-action="cred-del" data-id="${cm.id}">刪除</button></div>`;
   }).join('');
@@ -2998,7 +2997,7 @@ const ACTIONS={
       if(!Array.isArray(arr))throw new Error('AI 回傳格式錯誤');
       const valid=S.data.categories.map(c=>c.id);
       let n=0;
-      for(const a of arr){const r=rows[+a.i];if(r&&r.kind==='tx'&&typeof a.i==='number'){
+      for(const a of arr){const r=IMPPDF.rows[+a.i];if(r&&r.kind==='tx'&&typeof a.i==='number'){
         if(valid.indexOf(a.category)>=0){r.category=a.category;}
         if(a.online===true||a.online==='true')r.online=true;else if(a.online===false||a.online==='false')r.online=false;
         n++;}}
@@ -3200,139 +3199,6 @@ function boot(){
   });
   window.addEventListener('pagehide',()=>{if(SYNC.cfg&&SYNC.key&&!SYNC.busy)pushNow();});
 }
-/* Runs inside the original app's script scope, before boot. */
-Object.assign(KINDS,{
- reward_offset:{n:'獎賞兌換',bg:'#7155A5'},odd_cent:{n:'零數結轉',bg:'#667085'},fee:{n:'費用',bg:'#AD4337'},fee_refund:{n:'費用退回',bg:'#367763'},welcome_reward:{n:'迎新獎賞',bg:'#7155A5'},transfer:{n:'銀行轉賬',bg:'#667085'},foreign_tx:{n:'外幣消費',bg:'#45739A'},cashback_reversal:{n:'回贈扣回',bg:'#AD4337'},unknown:{n:'待核實',bg:'#667085'}
-});
-const parserMoney=r=>(r.currency==='CNY'?'CN¥':r.currency==='USD'?'US$':'HK$')+num(r.amount).toLocaleString('en-HK',{minimumFractionDigits:2,maximumFractionDigits:2});
-const unitNames={aeon_points:'Purple 積分',waku_coin:'WAKU COIN',asia_miles:'亞洲萬里通里數',gift_points:'Gift Points'};
-// The legacy heuristic deletes legitimate same-day repeated transactions. New imports use source IDs.
-migrateData=function(){return false;};
-pageText=StatementParser.layoutText;
-buildRows=function(text){
- const parsed=StatementParser.parse(text,{legacyHSBC:parseHSBC});
- IMPPDF.parsed=IMPPDF.parsed||{};IMPPDF.parsed[parsed.fp]=parsed;
- for(const r of parsed.rows){
-  r.category=guessCategory(r.raw_description||r.merchant);r.category_confidence='INFERRED';
-  // A merchant guess and ## are not bank confirmation of online eligibility.
-  r.online=guessOnline(r.raw_description||r.merchant)?true:null;
-  if(!r.cardId&&parsed.meta.bank==='hsbc')r.cardId=guessCard(text)||IMPPDF.cardId;
- }
- return parsed.rows.map(r=>({...r}));
-};
-const oldOpenPdf=ACTIONS['pdft-open'];
-ACTIONS['pdft-open']=()=>{IMPPDF.parsed={};IMPPDF.importWarnings=[];oldOpenPdf();};
-pdfsToTexts=async function(files){
- const base=(document.querySelector('script[src*="pdf.min.js"]')||{}).src||'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
- pdfjsLib.GlobalWorkerOptions.workerSrc=base.replace('pdf.min.js','pdf.worker.min.js');
- const out=[];
- for(const f of Array.from(files)){
-  toast('正在讀取 '+f.name+'…');const arr=await f.arrayBuffer();
-  const pdf=await pdfjsLib.getDocument({data:arr.slice(0),isEvalSupported:false}).promise;
-  try{const pages=[];for(let n=1;n<=pdf.numPages;n++){const pg=await pdf.getPage(n);pages.push(pageText((await pg.getTextContent()).items));}out.push({text:pages.join('\n\f\n'),name:f.name,buf:arr,numPages:pdf.numPages});}finally{await pdf.destroy();}
- }
- return out;
-};
-ACTIONS['pdft-file']=async(d,t)=>{
- const files=Array.from(t.files||[]);if(!files.length)return;
- if(typeof pdfjsLib==='undefined'){toast('PDF 解析器未載入，請檢查網絡後重試','err');return;}
- IMPPDF.rows=[];IMPPDF.stmts=[];IMPPDF.pdfs=[];IMPPDF.parsed={};IMPPDF.importWarnings=[];
- const lib=await pdfAll();
- for(const file of files){
-  try{
-   const [f]=await pdfsToTexts([file]);const rows=buildRows(f.text),parsed=Object.values(IMPPDF.parsed).at(-1);
-   if(!rows.length){IMPPDF.importWarnings.push(f.name+'：'+(parsed?.warnings.join('；')||'未找到交易'));continue;}
-   const fp=rows[0].fp;if(IMPPDF.stmts.some(s=>s.fp===fp)){IMPPDF.importWarnings.push(f.name+'：本次已選取相同結單，略過重複檔案');continue;}
-   const sid=lib.find(s=>s.fp===fp)?.sid||uid();rows.forEach(r=>{r.sid=sid;});
-   IMPPDF.stmts.push({fp,name:f.name,text:f.text});IMPPDF.pdfs.push({sid,name:f.name,buf:f.buf,fp});IMPPDF.rows.push(...rows);
-  }catch(e){IMPPDF.importWarnings.push(file.name+'：'+(e.message||e));}
- }
- openSheet(pdfImportSheet(IMPPDF.rows.length?2:1));
-};
-aiStmtMonth=()=>parsedReports()[0]?.meta.statement_month||'';
-const oldRaw=ACTIONS['pdft-raw-go'];
-ACTIONS['pdft-raw-go']=()=>{IMPPDF.pdfs=[];IMPPDF.parsed={};IMPPDF.importWarnings=[];oldRaw();};
-function parsedReports(){return (IMPPDF.stmts||[]).map(s=>({name:s.name,...IMPPDF.parsed?.[s.fp]})).filter(s=>s.meta);}
-function reportHTML(report){
- const checks=report.checks||[],warnings=report.warnings||[];
- return `<div class="panel" style="margin:8px 0"><b>${esc(report.name||report.meta?.statement_month||'結單')}</b>
- <p class="mini">${checks.length?checks.map(c=>`${esc(c.currency)} ${esc(c.label||'賬面')}：${c.ok?'明細與摘要相符':'存在差額，請核對'}`).join('；'):'未完成整份結單賬面核對'}。賬面吻合不代表回贈已給足。</p>
- ${warnings.length?'<p class="mini" style="color:var(--bad)">'+warnings.map(esc).join('<br>')+'</p>':''}
- ${(report.rewards||[]).map(r=>`<p class="mini">${esc(unitNames[r.unit]||r.unit)}：${r.earned==null?'調整 '+num(r.adjustment):'本期賺取 '+r.earned}${r.redeemed!=null?' · 兌換 '+r.redeemed+' · 結餘 '+r.balance:''}${r.valuation_hkd!=null?' · 新賺估值 '+fmtHKD(r.valuation_hkd):''}</p>`).join('')}</div>`;
-}
-const originalImportSheet=pdfImportSheet;
-pdfImportSheet=function(step){
- let html=originalImportSheet(step);
- const notes=(IMPPDF.importWarnings||[]).length?'<div class="panel" style="color:var(--bad)">'+IMPPDF.importWarnings.map(esc).join('<br>')+'</div>':'';
- if(step===1)return notes+html.replace('支援中銀（BOC）與渣打。','支援中銀、AEON、國泰、Mox 信用卡及 Mox 銀行回贈結單。');
- return notes+html.replace('<div class="s-head">確認月結單交易</div>','<div class="s-head">確認月結單交易</div>'+parsedReports().map(reportHTML).join('')+'<p class="mini">原始日期、CR、幣種與來源另存於「結單賬本」。人民幣獨立顯示；費用、兌換和迎新不會加入消費回贈。下方分類只是候選，历史應得回贈待核實。</p>');
-};
-// Only the original AEON gross-vs-net banner is suppressed; audited parser checks appear above.
-aeonVerifyLive=()=>[];
-ACTIONS['pdft-save']=async()=>{
- if(!IMPPDF.rows.length)return;
- if(IMPPDF.rows.some(r=>!r.cardId||!S.data.cards.some(c=>c.id===r.cardId))){toast('有賬項未確認卡片，請先選擇正確卡片。','err');return;}
- for(const r of IMPPDF.rows){if(!r.source_id){r.source_id='review:'+uid();r.parser_version='manual-review';r.currency=r.currency||'HKD';r.provenance='review_addition';if(!r.fp&&IMPPDF.stmts?.length===1)r.fp=IMPPDF.stmts[0].fp;}}
- const before=JSON.parse(JSON.stringify(S.data));
- try{
-  for(const p of IMPPDF.pdfs||[])await pdfPut(p.sid,{name:p.name,data:p.buf,fp:p.fp,importedAt:Date.now(),size:p.buf.byteLength});
-  const dd=JSON.parse(JSON.stringify(S.data));
-  dd.statementImports=dd.statementImports||[];dd.statementRewards=dd.statementRewards||[];
-  let added=0,duplicates=0;
-  const sourceIds=new Set([...dd.transactions,...dd.credits].map(x=>x.source_id).filter(Boolean));
-  for(const r of IMPPDF.rows){
-   if(r.kind==='rebate')continue;
-   if(sourceIds.has(r.source_id)){duplicates++;continue;}
-   const copy={...r,id:uid(),note:'月結單 v2.14.0',category:r.category||'other',actualReward:null,actualDate:null,expectedReward:null,bonus:0,ruleId:null,ruleName:'歷史資格待核實'};
-   if(r.kind==='tx'&&(!r.currency||r.currency==='HKD'))dd.transactions.push(copy);
-   else dd.credits.push({...copy,kind:r.kind==='tx'?'foreign_tx':r.kind});
-   sourceIds.add(r.source_id);added++;
-  }
-  for(const report of parsedReports()){
-   const mine=IMPPDF.rows.filter(r=>r.fp===report.fp);
-   dd.statementImports=dd.statementImports.filter(x=>x.fp!==report.fp);
-   dd.statementImports.push({fp:report.fp,name:report.name,meta:report.meta,rows:report.rows.map(r=>({...r})),reviewed_rows:mine.map(r=>({...r})),rewards:report.rewards,checks:report.checks,warnings:report.warnings,sid:mine[0]?.sid||null});
-   dd.statementRewards=dd.statementRewards.filter(x=>x.fp!==report.fp);
-   dd.statementRewards.push(...report.rewards.map(r=>({...r,fp:report.fp})));
-   // Cash only. Miles/points/coins stay in the reward ledger with their original units.
-   dd.rewardMonths=dd.rewardMonths.filter(x=>x.fp!==report.fp);
-   const groups=new Map();
-   for(const r of mine.filter(r=>r.kind==='rebate'&&r.currency==='HKD')){
-    const month=r.cashback_period||(r.post_date||r.date).slice(0,7),key=r.cardId+'|'+month;
-    const g=groups.get(key)||{id:uid(),fp:report.fp,cardId:r.cardId,month,amount:0,note:r.cashback_period?'結單現金回贈':'結單現金回贈 · 消費月份未明（按入賬月顯示）',sid:r.sid,source_rows:[]};
-    g.amount=r2(g.amount+r.amount);g.source_rows.push({...r});groups.set(key,g);
-   }
-   dd.rewardMonths.push(...groups.values());
-   for(const r of report.rewards){if(r.earned==null)continue;
-    dd.rewardMonths.push({id:uid(),fp:report.fp,cardId:r.cardId,month:report.meta.statement_month,amount:0,reward_unit:r.unit,earned:r.earned,valuation_hkd:r.valuation_hkd,parser_version:'2.14.0',note:'結單獎賞 · 與現金分開',sid:mine[0]?.sid});
-   }
-  }
-  dd.meta={...dd.meta,rev:(dd.meta?.rev||0)+1,savedAt:Date.now()};
-  // A failed storage write must not report successful import or discard the review.
-  localStorage.setItem(LS_DATA,JSON.stringify(dd));S.data=dd;schedulePush();
-  closeSheet();IMPPDF.rows=[];IMPPDF.stmts=[];IMPPDF.pdfs=[];IMPPDF.parsed={};IMPPDF.chat=null;
-  UI.screen='records';render();toast('已保存 '+added+' 筆賬項，略過 '+duplicates+' 筆已匯入賬項；獎賞與原始來源可在結單賬本查看。','ok');
- }catch(e){S.data=before;toast('未能保存帳本：'+(e.message||e)+'；確認頁仍保留，請重試。','err');}
-};
-function statementLedgerHTML(){
- const list=(S.data.statementImports||[]).slice().sort((a,b)=>(b.meta.statement_month||'').localeCompare(a.meta.statement_month||''));
- return `<div class="s-head">結單賬本 · v2.14.0</div><p class="s-sub">原始提取與候選分類分開。金額依原幣種顯示，CR 為入賬。國泰里數、AEON 積分和 COIN 不會當成現金回贈。</p>`+
- list.map(st=>`<details class="panel"><summary>${esc(st.name)} · ${st.rows.length} 筆</summary>${reportHTML(st)}
- <div style="overflow-x:auto"><table style="min-width:850px;width:100%;font-size:14px;text-align:left"><thead><tr><th>交易日</th><th>記賬／結算日</th><th>原始描述</th><th>金額</th><th>類型</th><th>來源頁</th></tr></thead><tbody>${st.rows.map(r=>`<tr style="color:${r.credit_debit_indicator==='CR'?'#168253':'inherit'}"><td>${esc(r.transaction_date||'未列')}</td><td>${esc(r.post_date||'未列')}</td><td>${esc(r.raw_description||r.merchant)}</td><td style="white-space:nowrap">${parserMoney(r)} ${r.credit_debit_indicator==='CR'?'CR':''}</td><td>${esc(KINDS[r.kind]?.n||r.transaction_type)}</td><td>${r.source_page||'—'}</td></tr>`).join('')}</tbody></table></div>
- ${st.sid?`<button class="btn btn-ghost" data-action="pdf-lib-open" data-sid="${st.sid}">查看原 PDF</button>`:''}</details>`).join('')+
- (!list.length?'<p>尚未匯入新版結單。</p>':'')+'<button class="btn btn-ghost" data-action="sheet-close">關閉</button>';
-}
-ACTIONS['statement-ledger']=()=>openSheet(statementLedgerHTML());
-const originalRmEdit=ACTIONS['rm-edit'];
-ACTIONS['rm-edit']=d=>S.data.rewardMonths.find(r=>r.id===d.id)?.reward_unit?ACTIONS['statement-ledger']():originalRmEdit(d);
-const originalRecordsHTML=recordsHTML;
-recordsHTML=function(){let html=originalRecordsHTML();const cny=(S.data.credits||[]).filter(r=>r.kind==='foreign_tx'&&r.currency==='CNY'&&r.date?.slice(0,7)===UI.recMonth&&(UI.recCard==='all'||r.cardId===UI.recCard));
- return `<section class="panel"><button class="btn btn-ghost btn-block" data-action="statement-ledger">結單賬本 · 原始帳項／積分／里數</button>${cny.length?'<p class="mini">本月人民幣消費 '+cny.length+' 筆：CN¥'+r2(cny.reduce((s,r)=>s+r.amount,0))+'，與港幣總消費分開。</p>':''}</section>`+html;};
-const originalRmTotal=rmTotal;
-rmTotal=function(rm){return rm.reward_unit?num(rm.valuation_hkd):originalRmTotal(rm);};
-const originalSettingsHTML=settingsHTML;
-settingsHTML=function(){return '<section class="panel"><b>v2.14.0 · 結單解析修正版</b><p class="mini">新版使用獨立本機帳本。可重新匯入 PDF，或在此匯入舊版匯出的備份；v2.13 舊版和舊版資料保留。請勿把舊版的同步碼連到新版，避免共用同一雲端帳本。</p><a href="./versions/v2.13.0/">開啟 v2.13</a></section>'+originalSettingsHTML();};
-
 boot();
 </script>
 </body>
