@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+const dir='versions/v2.15.0';
+const marker="/* Runs inside the original app's script scope, before boot. */";
+let base=fs.readFileSync('index.html','utf8');
+const start=base.indexOf(marker),end=base.indexOf('\nboot();',start);
+if(start<0||end<0)throw Error('Missing integration boundaries');
+base=base.slice(0,start)+fs.readFileSync(dir+'/integration.js','utf8').trim()+'\n'+fs.readFileSync(dir+'/prediction-integration.js','utf8').trim()+base.slice(end);
+base=base.replaceAll('v2.14.3 · 月結摘要與回贈排序','v2.15.0 · Chill 逐筆回贈預測');
+base=base.replace(/<script src="\.\/rewards[^"\n]*"><\/script>\s*/g,'');
+base=base.replace(/<script src="\.\/parser[^"\n]*"><\/script>/,'<script src="./parser.js"></script>\n<script src="./rewards.js"></script>');
+base=base.replaceAll("face:'cardimgs/","face:'../../cardimgs/");
+fs.writeFileSync(dir+'/index.html',base);
+const root=base.replace('src="./parser.js"','src="./parser-v2.15.js"').replace('src="./rewards.js"','src="./rewards-v2.15.js"').replaceAll("face:'../../cardimgs/","face:'cardimgs/").replaceAll('href="../v2.14.3/"','href="./versions/v2.14.3/"');
+fs.writeFileSync('index.html',root);
+fs.copyFileSync(dir+'/rewards.js','rewards-v2.15.js');
+fs.copyFileSync(dir+'/parser.js','parser-v2.15.js');

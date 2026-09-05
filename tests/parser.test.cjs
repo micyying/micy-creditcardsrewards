@@ -1,5 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const P=require('../versions/v2.14.3/parser.js');
+const P=require('../versions/v2.15.0/parser.js');
+const ChillRewards=require('../versions/v2.15.0/rewards.js');
 const boc='BOC Chill World Mastercard\nStatement Date 19-JAN-2026\n';
 test('dual dates, cross-year attribution, markers, fees and redemption remain separate',()=>{
  const r=P.parse(boc+'03-JAN 31-DEC ##APPLE.COM/BILL CORK IRL 78.00\n04-JAN 04-JAN CASH REBATE (Dec) 3.00 CR\n04-JAN 04-JAN Offset Spending with Points - BoC Pay+ 4.00 CR\n04-JAN 04-JAN OVERSEAS TRANSACTION FEE 1.50\nODD CENTS TO NEXT BILL 0.50 CR');
@@ -32,9 +33,9 @@ test('missing metadata never substitutes today and full statement fingerprint av
  assert.equal(P.parse('BOC Chill no date\n03-JAN 03-JAN SHOP 5.00').rows.length,0);assert.notEqual(P.parse(boc+'03-JAN 03-JAN SHOP 5.00').fp,P.parse(boc+'03-JAN 03-JAN SHOP 6.00').fp);assert.equal(P.date(31,2,2026),null);
 });
 function app(){
- const h=fs.readFileSync(require.resolve('../versions/v2.14.3/index.html'),'utf8');
+ const h=fs.readFileSync(require.resolve('../versions/v2.15.0/index.html'),'utf8');
  const js=[...h.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
- const memory=new Map();const c={document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},StatementParser:P,Date,console,localStorage:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)},setTimeout:()=>0,clearTimeout:()=>{}};
+ const memory=new Map();const c={document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},StatementParser:P,ChillRewards,Date,console,localStorage:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)},setTimeout:()=>0,clearTimeout:()=>{}};
  vm.createContext(c);vm.runInContext(js,c,{timeout:3000});vm.runInContext('S.data=freshData();S.data.cards=JSON.parse(JSON.stringify(REAL_CARDS));render=()=>{};closeSheet=()=>{};toast=(s)=>{globalThis.lastToast=s;};pdfPut=async()=>{};schedulePush=()=>{};',c);return c;
 }
 test('app import persists provenance, separates CNY, is idempotent and leaves old storage alone',async()=>{
