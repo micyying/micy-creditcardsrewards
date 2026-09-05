@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const P=require('../versions/v2.14.2/parser.js');
+const P=require('../versions/v2.14.3/parser.js');
 const boc='BOC Chill World Mastercard\nStatement Date 19-JAN-2026\n';
 test('dual dates, cross-year attribution, markers, fees and redemption remain separate',()=>{
  const r=P.parse(boc+'03-JAN 31-DEC ##APPLE.COM/BILL CORK IRL 78.00\n04-JAN 04-JAN CASH REBATE (Dec) 3.00 CR\n04-JAN 04-JAN Offset Spending with Points - BoC Pay+ 4.00 CR\n04-JAN 04-JAN OVERSEAS TRANSACTION FEE 1.50\nODD CENTS TO NEXT BILL 0.50 CR');
@@ -32,7 +32,7 @@ test('missing metadata never substitutes today and full statement fingerprint av
  assert.equal(P.parse('BOC Chill no date\n03-JAN 03-JAN SHOP 5.00').rows.length,0);assert.notEqual(P.parse(boc+'03-JAN 03-JAN SHOP 5.00').fp,P.parse(boc+'03-JAN 03-JAN SHOP 6.00').fp);assert.equal(P.date(31,2,2026),null);
 });
 function app(){
- const h=fs.readFileSync(require.resolve('../versions/v2.14.2/index.html'),'utf8');
+ const h=fs.readFileSync(require.resolve('../versions/v2.14.3/index.html'),'utf8');
  const js=[...h.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
  const memory=new Map();const c={document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},StatementParser:P,Date,console,localStorage:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)},setTimeout:()=>0,clearTimeout:()=>{}};
  vm.createContext(c);vm.runInContext(js,c,{timeout:3000});vm.runInContext('S.data=freshData();S.data.cards=JSON.parse(JSON.stringify(REAL_CARDS));render=()=>{};closeSheet=()=>{};toast=(s)=>{globalThis.lastToast=s;};pdfPut=async()=>{};schedulePush=()=>{};',c);return c;
@@ -57,4 +57,8 @@ test('record, review, reward and settings templates render without error',()=>{
 test('statement fees join the selected-card total and reward detail keeps point units',()=>{
  const c=app();vm.runInContext(`S.data.transactions=[{id:'t',date:'2026-06-20',record_month:'2026-07',cardId:'card-boc-chill',amount:496.9,merchant:'SHOP',category:'other',expectedReward:null}];S.data.credits=[{id:'f',date:'2026-06-27',record_month:'2026-07',cardId:'card-boc-chill',amount:.74,currency:'HKD',kind:'fee',merchant:'FEE'}];S.data.rewardMonths=[{id:'p',cardId:'card-boc-chill',month:'2026-07',amount:0,reward_unit:'gift_points',earned:269,valuation_hkd:1.08},{id:'c',cardId:'card-boc-chill',month:'2026-05',amount:3}];UI.recMonth='2026-07';UI.recCard='card-boc-chill';UI.recCat='all';`,c);
  assert.match(vm.runInContext('recordsHTML()',c),/HK\$497\.64/);vm.runInContext("UI.recMonth='2026-07'",c);const detail=vm.runInContext('actualRewardDetailHTML()',c);assert.match(detail,/269 Gift Points/);assert.match(detail,/HK\$1\.08/);
+});
+test('bank-declared New Charges wins and unified reward panel follows accounting order',()=>{
+ const c=app();vm.runInContext(`S.data.statementImports=[{fp:'s',name:'chill卡 2024年08 月.pdf',meta:{record_month:'2024-08',statement_month:'2024-08'},reviewed_rows:[{cardId:'card-boc-chill'}],checks:[{currency:'HKD',declared_debits:561386}]}];S.data.transactions=[{id:'t',date:'2024-07-19',record_month:'2024-08',cardId:'card-boc-chill',amount:5335.21,merchant:'SHOP',category:'other'}];S.data.rewardMonths=[{id:'cash',cardId:'card-boc-chill',month:'2024-08',amount:150},{id:'pts',cardId:'card-boc-chill',month:'2024-08',amount:0,reward_unit:'gift_points',earned:250,valuation_hkd:1},{id:'mile',cardId:'card-boc-chill',month:'2024-08',amount:0,reward_unit:'asia_miles',earned:100,valuation_hkd:6}];S.data.credits=[{id:'off',date:'2024-08-02',record_month:'2024-08',cardId:'card-boc-chill',amount:7,kind:'reward_offset',merchant:'OFFSET'},{id:'pay',date:'2024-08-08',record_month:'2024-08',cardId:'card-boc-chill',amount:100,kind:'payment',merchant:'PAY'},{id:'fee',date:'2024-08-07',record_month:'2024-08',cardId:'card-boc-chill',amount:.69,kind:'fee',merchant:'FEE'}];UI.recMonth='2024-08';UI.recCard='card-boc-chill';UI.recCat='all';`,c);
+ const tx=vm.runInContext('recordsHTML()',c);assert.match(tx,/HK\$5,613\.86/);assert.match(tx,/chill卡 2024年08 月\.pdf/);vm.runInContext("UI.recTab='rm'",c);const rm=vm.runInContext('recordsHTML()',c);assert.doesNotMatch(rm,/<h2 class="p-title">月結回贈/);assert.match(rm,/HK\$163\.00/);const list=rm.slice(rm.indexOf('<h2 class="p-title">回贈／退款'));for(const [a,b] of [['現金回贈','積分回贈'],['積分回贈','里程回贈'],['里程回贈','獎賞兌換'],['獎賞兌換','還款'],['還款','費用']])assert.ok(list.indexOf(a)<list.indexOf(b));
 });
