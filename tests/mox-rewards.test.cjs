@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
-const M=require('../versions/v2.16.0/mox-rewards'),P=require('../versions/v2.16.0/parser');
+const M=require('../versions/v2.16.1/mox-rewards'),P=require('../versions/v2.16.1/parser');
 const tx=(merchant,amount=100,date='2026-07-06',post='2026-07-07',extra={})=>({id:merchant,cardId:'card-mox',merchant,raw_description:merchant,amount,date,transaction_date:date,post_date:post,kind:'tx',currency:'HKD',...extra});
 test('Mox ordinary 1%, supermarkets 3% and convenience stores remain ordinary',()=>{
  for(const name of ['CIRCLE K','7-ELEVEN','ETERNAL EAST','CMHK'])assert.equal(M.predict(tx(name)).rate,.01,name);
@@ -55,12 +55,12 @@ test('settlement calendar reconciliation, dedup, same-day sums and delayed candi
 });
 test('Mox parser preserves activity, settlement, statement cycle and excludes invitation',()=>{
  const r=P.parse('Mox Credit statement\n10 Jun 2026 - 9 Jul 2026\n30 Jun 02 Jul YATA SUPERMARKET -75.00').rows[0];
- assert.equal(r.activity_date,'2026-06-30');assert.equal(r.settlement_date,'2026-07-02');assert.deepEqual(r.statement_period,{start:'2026-06-10',end:'2026-07-09'});assert.equal(r.record_month,'2026-06');
+ assert.equal(r.activity_date,'2026-06-30');assert.equal(r.settlement_date,'2026-07-02');assert.deepEqual(r.statement_period,{start:'2026-06-10',end:'2026-07-09'});assert.equal(r.record_month,'2026-07');
  const b=P.parse('Mox Bank statement\n1 Mar 2026 - 31 Mar 2026\n07 Mar 07 Mar Mox invitation reward +1,000.00\n17 Mar 17 Mar CashBack +1.16');assert.equal(b.rows[0].kind,'welcome_reward');assert.equal(b.rows[1].kind,'rebate');
 });
 function app(){
- const html=fs.readFileSync(require.resolve('../versions/v2.16.0/index.html'),'utf8'),js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
- const mem=new Map(),c={MoxRewards:M,ChillRewards:require('../versions/v2.16.0/rewards'),StatementParser:P,console,Date,setTimeout:()=>0,clearTimeout:()=>{},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},localStorage:{getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v)}};
+ const html=fs.readFileSync(require.resolve('../versions/v2.16.1/index.html'),'utf8'),js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
+ const mem=new Map(),c={MoxRewards:M,ChillRewards:require('../versions/v2.16.1/rewards'),StatementParser:P,console,Date,setTimeout:()=>0,clearTimeout:()=>{},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},localStorage:{getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v)}};
  vm.createContext(c);vm.runInContext(js,c);vm.runInContext('S.data=freshData();S.data.cards=JSON.parse(JSON.stringify(REAL_CARDS));render=()=>{};schedulePush=()=>{};closeSheet=()=>{};toast=(s)=>globalThis.message=s;pdfPut=async()=>{};openSheet=s=>globalThis.sheet=s',c);return c;
 }
 test('old Mox rows automatically backfill, preserve actual/raw values and render cash-only detail',()=>{
@@ -78,4 +78,35 @@ test('Mox credit and bank imports remain idempotent with separate welcome and ba
  assert.equal(vm.runInContext('S.data.transactions.length',c),1);assert.equal(vm.runInContext('S.data.rewardMonths[0].amount',c),2.25);assert.equal(vm.runInContext('S.data.credits[0].kind',c),'welcome_reward');
  assert.equal(vm.runInContext('S.data.moxReconciliation[0].observed_cashback_total',c),2.25);assert.equal(vm.runInContext('S.data.moxReconciliation[0].evidence_count',c),1);
  vm.runInContext('UI.recCard="card-mox";ACTIONS["mox-reconciliation"]()',c);assert.match(c.sheet,/1,000\.00/);assert.match(c.sheet,/MATCHED_AGGREGATE/);
+});
+
+test('Circle K is other across all cards and RentSmart gets its own category despite learned labels',()=>{
+ const c=app();vm.runInContext(`S.data.categories.find(c=>c.id==='fuel').keywords.push('CIRCLE K');S.data.knowledge=[{pattern:'CIRCLE K',category:'fuel'}];S.data.transactions=[{id:'a',cardId:'card-boc-chill',date:'2026-07-01',merchant:'##circle k HONG KONG',amount:10,category:'fuel'},{id:'b',cardId:'card-mox',date:'2026-07-01',merchant:'Circle K',amount:20,category:'grocery'},{id:'c',cardId:'card-mox',date:'2026-07-01',merchant:'rentsmart HKG',raw_description:'rentsmart HKG',amount:100,category:'other'}];migrateData()`,c);
+ assert.equal(vm.runInContext('guessCategory("CIRCLE K")',c),'other');assert.equal(vm.runInContext('guessCategory("rent smart")',c),'rentsmart');assert.equal(vm.runInContext('S.data.transactions[0].category',c),'other');assert.equal(vm.runInContext('S.data.transactions[1].category',c),'other');assert.equal(vm.runInContext('S.data.transactions[2].category',c),'rentsmart');assert.equal(vm.runInContext('S.data.transactions[2].raw_description',c),'rentsmart HKG');assert.equal(vm.runInContext('S.data.categories.filter(c=>c.id==="rentsmart").length',c),1);
+ assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
+});
+test('Mox owner-name credit is repayment, merchant refunds remain refunds, statement end controls month',()=>{
+ const p=P.parse('JANE DOE Mox Credit statement\n10 Mar 2026 - 9 Apr 2026\n31 Mar 31 Mar DOE JANE 100.00\n31 Mar 31 Mar SHOP REFUND 9.00\n31 Mar 31 Mar OTHER SHOP 8.00');
+ assert.equal(p.meta.account_holder,'JANE DOE');assert.equal(p.meta.record_month,'2026-04');assert.equal(p.rows[0].kind,'payment');assert.equal(p.rows[0].account_role,'credit_repayment');assert.equal(p.rows[1].kind,'credit');assert.equal(p.rows[2].kind,'credit');assert.equal(p.rows[0].raw_description,'DOE JANE');
+ assert.equal(P.parse('Mox Credit statement\n10 Feb 2026 - 9 Mar 2026\n11 Feb 12 Feb SHOP -10.00').rows[0].record_month,'2026-03');
+});
+test('Mox bank money-in and credit repayment sides are linked without changing raw amounts or sources',async()=>{
+ const c=app();
+ const texts=['JANE DOE Mox Bank statement\n1 Mar 2026 - 31 Mar 2026\n31 Mar 31 Mar JANE DOE +80.00\n31 Mar 31 Mar DOE J*** -100.00','JANE DOE Mox Credit statement\n10 Mar 2026 - 9 Apr 2026\n31 Mar 31 Mar DOE JANE 100.00\n31 Mar 31 Mar SHOP REFUND 9.00'];
+ for(const text of texts){c.input=text;vm.runInContext('IMPPDF.rows=buildRows(input);IMPPDF.stmts=[{fp:IMPPDF.rows[0].fp,name:"test",text:input}];IMPPDF.pdfs=[]',c);await vm.runInContext('ACTIONS["pdft-save"]()',c);}
+ const rows=JSON.parse(vm.runInContext('JSON.stringify(S.data.credits)',c)),incoming=rows.find(r=>r.amount===80),out=rows.find(r=>r.amount===100&&r.document_type==='bank'),credit=rows.find(r=>r.amount===100&&r.document_type==='credit');
+ assert.equal(incoming.account_role,'bank_transfer_in');assert.equal(incoming.kind,'transfer');assert.equal(out.kind,'payment');assert.equal(out.account_role,'bank_credit_payment');assert.equal(out.amount_minor,10000);assert.equal(credit.amount_minor,-10000);assert.equal(out.payment_link_id,credit.payment_link_id);assert.deepEqual(out.related_source_ids,[credit.source_id]);assert.equal(rows.find(r=>r.amount===9).kind,'credit');
+ assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
+});
+test('existing Mox data migrates using original statement filename and end month without reimport',()=>{
+ const c=app(),old=require('../versions/v2.16.0/parser');const report=old.parse('Mox Credit statement\n10 Feb 2026 - 9 Mar 2026\n12 Feb 13 Feb CIRCLE K -10.00\n01 Mar 01 Mar DOE JANE 100.00');
+ c.report=report;vm.runInContext(`S.data.statementImports=[{...report,name:'JANE-DOE_3月2026_Mox_Credit_Statement.pdf',reviewed_rows:report.rows.map(r=>({...r}))}];S.data.transactions=report.rows.filter(r=>r.kind==='tx').map(r=>({...r,id:r.source_id}));S.data.credits=report.rows.filter(r=>r.kind==='credit').map(r=>({...r,id:r.source_id}));migrateData()`,c);
+ assert.equal(vm.runInContext('S.data.transactions[0].record_month',c),'2026-03');assert.equal(vm.runInContext('txsOfMonth("2026-02").length',c),0);assert.equal(vm.runInContext('txsOfMonth("2026-03").length',c),1);assert.equal(vm.runInContext('S.data.credits[0].kind',c),'payment');assert.equal(vm.runInContext('S.data.credits[0].original_kind',c),'credit');assert.equal(vm.runInContext('S.data.statementImports[0].reviewed_rows[0].category',c),'other');assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
+});
+test('welcome joins rewards while repayments, transfers and refunds remain in other ledger',()=>{
+ const c=app();vm.runInContext(`UI.recMonth='2026-03';UI.recCard='card-mox';UI.recTab='rm';S.data.rewardMonths=[{id:'cash',cardId:'card-mox',month:'2026-03',amount:10}];S.data.credits=[{id:'welcome',cardId:'card-mox',date:'2026-03-07',record_month:'2026-03',kind:'welcome_reward',merchant:'Invitation',amount:1000},{id:'offset',cardId:'card-mox',date:'2026-03-07',record_month:'2026-03',kind:'reward_offset',merchant:'Redeem',amount:2},{id:'payment',cardId:'card-mox',date:'2026-03-31',record_month:'2026-03',kind:'payment',account_role:'bank_credit_payment',merchant:'Payment',amount:500},{id:'refund',cardId:'card-mox',date:'2026-03-31',record_month:'2026-03',kind:'credit',merchant:'SHOP REFUND',amount:9}];`,c);
+ const html=vm.runInContext('recordsHTML()',c),rewards=html.slice(html.indexOf('data-section="rewards"'),html.indexOf('data-section="other-ledger"')),other=html.slice(html.indexOf('data-section="other-ledger"'));
+ assert.match(rewards,/HK\$1,012\.00/);assert.match(rewards,/迎新獎勵/);assert.match(rewards,/獎賞兌換/);assert.doesNotMatch(rewards,/SHOP REFUND|銀行扣款/);assert.match(other,/銀行扣款/);assert.match(other,/SHOP REFUND/);assert.doesNotMatch(other,/Invitation|Redeem/);
+ assert.match(vm.runInContext('actualRewardDetailHTML()',c),/HK\$1,010\.00/);
+ vm.runInContext('S.data.rewardMonths=[];UI.recTab="tx"',c);assert.doesNotMatch(vm.runInContext('recordsHTML()',c),/<div class="sv">未取得<\/div>/);
 });
