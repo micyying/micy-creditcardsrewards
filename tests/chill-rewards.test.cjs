@@ -1,5 +1,5 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const R=require('../versions/v2.15.1/rewards.js'),P=require('../versions/v2.15.1/parser.js');
+const R=require('../versions/v2.16.0/rewards.js'),P=require('../versions/v2.16.0/parser.js');
 const tx=(id,merchant,amount,date='2026-05-27',extra={})=>({id,cardId:'card-boc-chill',kind:'tx',currency:'HKD',date,transaction_date:date,merchant,amount,...extra});
 test('Apple 78 yields theoretical 3.59 cash plus .31 points without inventing actual',()=>{
  const t=tx('a','##APPLE.COM/BILL CORK IRL',78),before=JSON.stringify(t),p=R.calculate([t]).results.get(t);
@@ -28,9 +28,9 @@ test('manual channel edits change predictions, not raw markers; cent allocations
  assert.equal(Math.round([...p.results.values()].reduce((s,r)=>s+r.bonus_hkd,0)*100),15000);
 });
 function app(){
- const html=fs.readFileSync(require.resolve('../versions/v2.15.1/index.html'),'utf8');
+ const html=fs.readFileSync(require.resolve('../versions/v2.16.0/index.html'),'utf8');
  const js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(x=>x[1]).join('\n').replace(/boot\(\);\s*$/,'');
- const memory=new Map(),c={ChillRewards:R,StatementParser:P,console,Date,setTimeout:()=>0,clearTimeout:()=>{},localStorage:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}}};
+ const memory=new Map(),c={ChillRewards:R,StatementParser:P,MoxRewards:require('../versions/v2.16.0/mox-rewards.js'),console,Date,setTimeout:()=>0,clearTimeout:()=>{},localStorage:{getItem:k=>memory.get(k)||null,setItem:(k,v)=>memory.set(k,v)},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}}};
  vm.createContext(c);vm.runInContext(js,c);vm.runInContext('S.data=freshData();S.data.cards=JSON.parse(JSON.stringify(REAL_CARDS));render=()=>{};schedulePush=()=>{};closeSheet=()=>{};toast=()=>{};pdfPut=async()=>{}',c);return c;
 }
 test('existing imported records migrate and imports persist predictions; actual rewards stay separate',async()=>{
@@ -45,10 +45,10 @@ test('existing imported records migrate and imports persist predictions; actual 
 });
 test('release root and version use existing correct parser and prediction scripts',()=>{
  const path=require('node:path'),root=path.resolve(__dirname,'..');
- for(const dir of [root,path.join(root,'versions/v2.15.1')]){
+ for(const dir of [root,path.join(root,'versions/v2.16.0')]){
   const html=fs.readFileSync(path.join(dir,'index.html'),'utf8');
-  const scripts=[...html.matchAll(/<script src="(\.\/[^\"]+)"/g)].map(m=>m[1]);assert.equal(scripts.length,2);
+  const scripts=[...html.matchAll(/<script src="(\.\/[^\"]+)"/g)].map(m=>m[1]);assert.equal(scripts.length,3);
   for(const file of scripts)assert.ok(fs.existsSync(path.join(dir,file)),file);
-  assert.match(scripts[0],/parser(?:-v2\.15\.1)?\.js/);assert.match(scripts[1],/rewards(?:-v2\.15\.1)?\.js/);
+  assert.match(scripts[0],/parser(?:-v2\.16\.0)?\.js/);assert.match(scripts[2],/mox-rewards(?:-v2\.16\.0)?\.js/);assert.match(scripts[1],/rewards(?:-v2\.16\.0)?\.js/);
  }
 });
