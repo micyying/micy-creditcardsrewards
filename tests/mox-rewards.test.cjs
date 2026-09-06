@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
-const M=require('../versions/v2.16.1/mox-rewards'),P=require('../versions/v2.16.1/parser');
+const M=require('../versions/v2.17.0/mox-rewards'),P=require('../versions/v2.17.0/parser');
 const tx=(merchant,amount=100,date='2026-07-06',post='2026-07-07',extra={})=>({id:merchant,cardId:'card-mox',merchant,raw_description:merchant,amount,date,transaction_date:date,post_date:post,kind:'tx',currency:'HKD',...extra});
 test('Mox ordinary 1%, supermarkets 3% and convenience stores remain ordinary',()=>{
  for(const name of ['CIRCLE K','7-ELEVEN','ETERNAL EAST','CMHK'])assert.equal(M.predict(tx(name)).rate,.01,name);
@@ -59,8 +59,8 @@ test('Mox parser preserves activity, settlement, statement cycle and excludes in
  const b=P.parse('Mox Bank statement\n1 Mar 2026 - 31 Mar 2026\n07 Mar 07 Mar Mox invitation reward +1,000.00\n17 Mar 17 Mar CashBack +1.16');assert.equal(b.rows[0].kind,'welcome_reward');assert.equal(b.rows[1].kind,'rebate');
 });
 function app(){
- const html=fs.readFileSync(require.resolve('../versions/v2.16.1/index.html'),'utf8'),js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
- const mem=new Map(),c={MoxRewards:M,ChillRewards:require('../versions/v2.16.1/rewards'),StatementParser:P,console,Date,setTimeout:()=>0,clearTimeout:()=>{},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},localStorage:{getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v)}};
+ const html=fs.readFileSync(require.resolve('../versions/v2.17.0/index.html'),'utf8'),js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
+ const mem=new Map(),c={GoRewards:require('../versions/v2.17.0/go-rewards'),MoxRewards:M,ChillRewards:require('../versions/v2.17.0/rewards'),StatementParser:P,console,Date,setTimeout:()=>0,clearTimeout:()=>{},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},localStorage:{getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v)}};
  vm.createContext(c);vm.runInContext(js,c);vm.runInContext('S.data=freshData();S.data.cards=JSON.parse(JSON.stringify(REAL_CARDS));render=()=>{};schedulePush=()=>{};closeSheet=()=>{};toast=(s)=>globalThis.message=s;pdfPut=async()=>{};openSheet=s=>globalThis.sheet=s',c);return c;
 }
 test('old Mox rows automatically backfill, preserve actual/raw values and render cash-only detail',()=>{
@@ -68,7 +68,7 @@ test('old Mox rows automatically backfill, preserve actual/raw values and render
  assert.equal(vm.runInContext('S.data.settings.moxRules["card-mox"].plus_status',c),'no');assert.equal(c.row.expectedReward,2.25);assert.equal(c.row.actualReward,2.25);assert.equal(c.row.allocated_actual_cashback,null);assert.equal(c.row.raw_description,'##YATA SUPERMARKET');assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
  vm.runInContext('load();UI.recMonth="2026-07";UI.recCard="card-mox"',c);assert.equal(vm.runInContext('S.data.transactions[0].expectedReward',c),2.25);
  const h=vm.runInContext('txSheet(row.id)',c);assert.match(h,/Mox 現金回贈預測/);assert.doesNotMatch(h,/220分|prediction-channel/);
- assert.equal(vm.runInContext('credibilityFor("card-mox")',c),null);assert.match(vm.runInContext('recordsHTML()',c),/Mox 現金回贈/);
+ assert.equal(vm.runInContext('credibilityFor("card-mox")',c),null);assert.match(vm.runInContext('recordsHTML()',c),/原始帳本/);
 });
 test('Mox credit and bank imports remain idempotent with separate welcome and bank evidence',async()=>{
  const c=app();
@@ -109,4 +109,24 @@ test('welcome joins rewards while repayments, transfers and refunds remain in ot
  assert.match(rewards,/HK\$1,012\.00/);assert.match(rewards,/迎新獎勵/);assert.match(rewards,/獎賞兌換/);assert.doesNotMatch(rewards,/SHOP REFUND|銀行扣款/);assert.match(other,/銀行扣款/);assert.match(other,/SHOP REFUND/);assert.doesNotMatch(other,/Invitation|Redeem/);
  assert.match(vm.runInContext('actualRewardDetailHTML()',c),/HK\$1,010\.00/);
  vm.runInContext('S.data.rewardMonths=[];UI.recTab="tx"',c);assert.doesNotMatch(vm.runInContext('recordsHTML()',c),/<div class="sv">未取得<\/div>/);
+});
+
+test('mixed-card totals keep Mox, manual entries and scoped statement summaries; CNY stays separate',()=>{
+ const c=app();vm.runInContext(`S.data.transactions=[{id:'m',date:'2026-04-01',record_month:'2026-04',cardId:'card-mox',amount:5100,fp:'mox'},{id:'b',date:'2026-04-01',cardId:'card-boc-chill',amount:230,fp:'boc'},{id:'x',date:'2026-04-01',cardId:'card-mox',amount:50}];S.data.credits=[{date:'2026-04-01',cardId:'card-boc-chill',amount:7.14,kind:'fee',currency:'HKD',fp:'boc'},{date:'2026-04-01',cardId:'card-boc-go',amount:999,kind:'foreign_tx',currency:'CNY'}];S.data.statementImports=[{fp:'boc',meta:{record_month:'2026-04'},rows:[{cardId:'card-boc-chill',currency:'HKD'}],checks:[{currency:'HKD',declared_debits:23714}]},{fp:'mox',meta:{record_month:'2026-04'},rows:[{cardId:'card-mox'}],checks:[]}];`,c);
+ assert.equal(vm.runInContext('statementDeclaredSpend("2026-04")',c),5387.14);
+ assert.equal(vm.runInContext('statementDeclaredSpend("2026-04","card-mox")',c),5150);
+ assert.equal(vm.runInContext('statementDeclaredSpend("2026-04","card-boc-chill")',c),237.14);
+ vm.runInContext(`S.data.statementImports.push({...S.data.statementImports[0]});`,c);
+ assert.equal(vm.runInContext('statementDeclaredSpend("2026-04")',c),5387.14,'duplicate statement does not double count');
+});
+test('unscoped multi-card summary cannot leak into each card; Shenzhen metro migration preserves raw name',()=>{
+ const c=app();vm.runInContext(`S.data.transactions=[{id:'a',date:'2026-04-01',cardId:'card-boc-go',merchant:'##Shenzhen metro CNY',amount:20,currency:'HKD',fp:'multi',category:'other'},{id:'b',date:'2026-04-01',cardId:'card-mox',amount:30,fp:'multi'}];S.data.statementImports=[{fp:'multi',meta:{record_month:'2026-04'},rows:S.data.transactions,checks:[{currency:'HKD',declared_debits:5000}]}];migrateData();`,c);
+ assert.equal(vm.runInContext('statementDeclaredSpend("2026-04","card-boc-go")',c),20);
+ assert.equal(vm.runInContext('statementDeclaredSpend("2026-04")',c),50);
+ assert.equal(vm.runInContext('S.data.transactions[0].category',c),'transport');
+ assert.equal(vm.runInContext('S.data.transactions[0].merchant',c),'##Shenzhen metro CNY');
+ assert.equal(vm.runInContext('guessCategory("shenzhen metro")',c),'transport');
+ vm.runInContext(`UI.recMonth='2026-04';UI.recTab='tx';UI.recCard='all';UI.recCat='all'`,c);
+ const h=vm.runInContext('recordsHTML()',c);assert.match(h,/data-action="statement-ledger">原始帳本/);assert.doesNotMatch(h,/data-action="tx-add"|data-action="mox-reconciliation"/);
+ vm.runInContext(`ACTIONS['statement-ledger']()`,c);assert.match(c.sheet,/Mox 對帳／規則/);assert.match(c.sheet,/Go 對帳／規則/);
 });

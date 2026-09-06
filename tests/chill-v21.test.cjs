@@ -1,5 +1,5 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const R=require('../versions/v2.16.1/rewards.js'),P=require('../versions/v2.16.1/parser.js');
+const R=require('../versions/v2.17.0/rewards.js'),P=require('../versions/v2.17.0/parser.js');
 const tx=(name,amount=78,date='2026-07-27',extra={})=>({id:name,cardId:'card-boc-chill',kind:'tx',date,transaction_date:date,amount,merchant:name,...extra});
 test('confirmed merchant aliases normalize before dated matching; other merchants are not Chill',()=>{
  for(const name of ['APPLE.COM/BILL','Nintendo','UNIQLO',"McDonald's",'McDonalds','BBMSL*Cinemacomhk APMHong Kong HKG'])assert.equal(R.classify(tx(name)).chill_merchant,true,name);
