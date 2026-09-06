@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
-const M=require('../versions/v2.17.0/mox-rewards'),P=require('../versions/v2.17.0/parser');
+const M=require('../versions/v2.18.0/mox-rewards'),P=require('../versions/v2.18.0/parser');
 const tx=(merchant,amount=100,date='2026-07-06',post='2026-07-07',extra={})=>({id:merchant,cardId:'card-mox',merchant,raw_description:merchant,amount,date,transaction_date:date,post_date:post,kind:'tx',currency:'HKD',...extra});
 test('Mox ordinary 1%, supermarkets 3% and convenience stores remain ordinary',()=>{
  for(const name of ['CIRCLE K','7-ELEVEN','ETERNAL EAST','CMHK'])assert.equal(M.predict(tx(name)).rate,.01,name);
@@ -59,8 +59,8 @@ test('Mox parser preserves activity, settlement, statement cycle and excludes in
  const b=P.parse('Mox Bank statement\n1 Mar 2026 - 31 Mar 2026\n07 Mar 07 Mar Mox invitation reward +1,000.00\n17 Mar 17 Mar CashBack +1.16');assert.equal(b.rows[0].kind,'welcome_reward');assert.equal(b.rows[1].kind,'rebate');
 });
 function app(){
- const html=fs.readFileSync(require.resolve('../versions/v2.17.0/index.html'),'utf8'),js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
- const mem=new Map(),c={GoRewards:require('../versions/v2.17.0/go-rewards'),MoxRewards:M,ChillRewards:require('../versions/v2.17.0/rewards'),StatementParser:P,console,Date,setTimeout:()=>0,clearTimeout:()=>{},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},localStorage:{getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v)}};
+ const html=fs.readFileSync(require.resolve('../versions/v2.18.0/index.html'),'utf8'),js=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n').replace(/boot\(\);\s*$/,'');
+ const mem=new Map(),c={GoRewards:require('../versions/v2.18.0/go-rewards'),MoxRewards:M,ChillRewards:require('../versions/v2.18.0/rewards'),StatementParser:P,console,Date,setTimeout:()=>0,clearTimeout:()=>{},document:{querySelector:()=>null,addEventListener:()=>{}},window:{addEventListener:()=>{}},localStorage:{getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v)}};
  vm.createContext(c);vm.runInContext(js,c);vm.runInContext('S.data=freshData();S.data.cards=JSON.parse(JSON.stringify(REAL_CARDS));render=()=>{};schedulePush=()=>{};closeSheet=()=>{};toast=(s)=>globalThis.message=s;pdfPut=async()=>{};openSheet=s=>globalThis.sheet=s',c);return c;
 }
 test('old Mox rows automatically backfill, preserve actual/raw values and render cash-only detail',()=>{
@@ -129,4 +129,27 @@ test('unscoped multi-card summary cannot leak into each card; Shenzhen metro mig
  vm.runInContext(`UI.recMonth='2026-04';UI.recTab='tx';UI.recCard='all';UI.recCat='all'`,c);
  const h=vm.runInContext('recordsHTML()',c);assert.match(h,/data-action="statement-ledger">原始帳本/);assert.doesNotMatch(h,/data-action="tx-add"|data-action="mox-reconciliation"/);
  vm.runInContext(`ACTIONS['statement-ledger']()`,c);assert.match(c.sheet,/Mox 對帳／規則/);assert.match(c.sheet,/Go 對帳／規則/);
+});
+test('CNY purchases appear in consumption list and reward preview, not refunds or HKD amount',()=>{
+ const c=app();vm.runInContext(`S.data.transactions=[{id:'hkd',cardId:'card-boc-go',date:'2026-07-05',post_date:'2026-07-06',record_month:'2026-07',amount:100,currency:'HKD',merchant:'SHOP HONG KONG',category:'other',kind:'tx',go_channel:'apple_pay',go_region:'hong_kong'}];S.data.credits=[{id:'cny',cardId:'card-boc-go',date:'2026-07-05',post_date:'2026-07-06',record_month:'2026-07',amount:200,currency:'CNY',merchant:'##Shenzhen metro',category:'transport',kind:'foreign_tx',go_channel:'apple_pay',go_region:'mainland'}];S.data.settings.goRules={'card-boc-go':{promotions:{'go-mobile-2026-q3':{status:'yes',registration_month:'2026-07'}}}};UI.recMonth='2026-07';UI.recCard='card-boc-go';UI.recCat='all';recalculatePredictions(S.data);`,c);
+ const h=vm.runInContext('recordsHTML()',c);assert.match(h,/data-action="foreign-edit" data-id="cny"/);assert.match(h,/CN¥200.00/);assert.match(h,/data-cny-spend="200"/);assert.match(h,/HK\$10\.00/);assert.equal(vm.runInContext('statementDeclaredSpend("2026-07","card-boc-go")',c),100);assert.equal(vm.runInContext('statementDeclaredSpend("2026-07","card-boc-go","CNY")',c),200);
+ vm.runInContext(`ACTIONS['foreign-edit']({id:'cny'})`,c);assert.match(c.sheet,/10X/);assert.match(c.sheet,/data-change="go-region"/);assert.doesNotMatch(c.sheet,/金額 HK\$/);
+ vm.runInContext(`ACTIONS['go-channel']({id:'cny'},{value:'direct'})`,c);assert.equal(vm.runInContext('S.data.credits[0].prediction.points_rate',c),1);assert.equal(vm.runInContext('S.data.credits[0].amount',c),200);
+ vm.runInContext(`UI.recTab='rm'`,c);assert.doesNotMatch(vm.runInContext('recordsHTML()',c),/Shenzhen metro/);
+ vm.runInContext(`UI.recTab='tx';UI.recCat='transport'`,c);const filtered=vm.runInContext('recordsHTML()',c);assert.match(filtered,/Shenzhen metro/);assert.doesNotMatch(filtered,/SHOP HONG KONG/);
+ assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
+});
+test('dual-currency summaries replace only matching currency subtotal and settings require a valid registration month',()=>{
+ const c=app();vm.runInContext(`S.data.statementImports=[{fp:'s',meta:{record_month:'2026-07'},rows:[{cardId:'card-boc-go',currency:'HKD'},{cardId:'card-boc-go',currency:'CNY'}],checks:[{currency:'HKD',declared_debits:10000},{currency:'CNY',declared_debits:20100}]}];S.data.transactions=[{id:'h',fp:'s',cardId:'card-boc-go',date:'2026-07-01',amount:100,currency:'HKD'}];S.data.credits=[{id:'c',fp:'s',cardId:'card-boc-go',date:'2026-07-01',amount:200,currency:'CNY',kind:'foreign_tx'}];`,c);
+ assert.equal(vm.runInContext('statementDeclaredSpend("2026-07")',c),100);assert.equal(vm.runInContext('statementDeclaredSpend("2026-07","all","CNY")',c),201);
+ vm.runInContext(`document.getElementById=id=>({value:id==='go-reg-status'?'yes':'2026-06'});ACTIONS['go-settings-save']({id:'card-boc-go'})`,c);assert.match(c.message,/7、8或9月/);
+ vm.runInContext(`document.getElementById=id=>({value:id==='go-reg-status'?'yes':'2026-08'});ACTIONS['go-settings-save']({id:'card-boc-go'})`,c);assert.equal(vm.runInContext(`S.data.settings.goRules['card-boc-go'].promotions['go-mobile-2026-q3'].registration_month`,c),'2026-08');
+});
+test('Go GP notification is retained as evidence but not added twice to imported point adjustments',()=>{
+ const c=app();vm.runInContext(`S.data.statementImports=[{fp:'s',meta:{record_month:'2026-07'},rows:[],rewards:[{cardId:'card-boc-go',unit:'gift_points',adjustment:80},{cardId:'card-boc-go',unit:'gift_points',adjustment:200,balance:1200}]}];S.data.rewardMonths=[{id:'notice',fp:'s',cardId:'card-boc-go',reward_unit:'gift_points',earned:80,parser_version:'2.14.2'},{id:'ledger',fp:'s',cardId:'card-boc-go',reward_unit:'gift_points',earned:200,parser_version:'2.14.2'},{id:'manual',cardId:'card-boc-go',reward_unit:'gift_points',earned:15}];recalculatePredictions(S.data);`,c);
+ assert.equal(vm.runInContext('S.data.rewardMonths.length',c),2);assert.equal(vm.runInContext('S.data.rewardMonths.find(r=>r.id==="ledger").earned',c),200);assert.equal(vm.runInContext('S.data.statementImports[0].rewards.length',c),2);assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
+});
+test('local persistence drops only rebuildable reward caches, keeps actuals/raw evidence and restores predictions',()=>{
+ const c=app();vm.runInContext(`S.data.transactions=[{id:'a',cardId:'card-boc-go',date:'2026-07-05',post_date:'2026-07-06',merchant:'##SHOP',amount:100,actualReward:2,kind:'tx',go_region:'mainland',go_channel:'apple_pay'}];S.data.settings.goRules={'card-boc-go':{promotions:{'go-mobile-2026-q3':{status:'yes',registration_month:'2026-07'}}}};recalculatePredictions(S.data);saveLocal();load();`,c);
+ assert.equal(vm.runInContext('S.data.transactions[0].expectedReward',c),4);assert.equal(vm.runInContext('S.data.transactions[0].actualReward',c),2);assert.equal(vm.runInContext('S.data.transactions[0].merchant',c),'##SHOP');assert.equal(vm.runInContext('S.data.transactions[0].go_channel',c),'apple_pay');assert.equal(vm.runInContext('recalculatePredictions(S.data)',c),false);
 });

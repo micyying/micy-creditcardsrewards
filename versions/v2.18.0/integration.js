@@ -1,0 +1,292 @@
+/* Runs inside the original app's script scope, before boot. */
+Object.assign(KINDS,{
+ reward_offset:{n:'獎賞兌換',bg:'#7155A5'},odd_cent:{n:'零數結轉',bg:'#667085'},fee:{n:'費用',bg:'#AD4337'},fee_refund:{n:'費用退回',bg:'#367763'},welcome_reward:{n:'迎新獎賞',bg:'#7155A5'},transfer:{n:'銀行轉賬',bg:'#667085'},foreign_tx:{n:'外幣消費',bg:'#45739A'},cashback_reversal:{n:'回贈扣回',bg:'#AD4337'},unknown:{n:'待核實',bg:'#667085'}
+});
+const parserMoney=r=>(r.currency==='CNY'?'CN¥':r.currency==='USD'?'US$':'HK$')+num(r.amount).toLocaleString('en-HK',{minimumFractionDigits:2,maximumFractionDigits:2});
+const unitNames={aeon_points:'Purple 積分',waku_coin:'WAKU COIN',asia_miles:'亞洲萬里通里數',gift_points:'Gift Points'};
+const rewardUnitValue=(unit,quantity)=>unit==='waku_coin'?num(quantity):unit==='asia_miles'?r2(num(quantity)*MILE_HKD):r2(num(quantity)*PT_HKD);
+function statementImportsOfMonth(month,cardId='all'){
+ return (S.data.statementImports||[]).filter(st=>(st.meta?.record_month||st.meta?.statement_month)===month&&(cardId==='all'||(st.reviewed_rows||st.rows||[]).some(r=>r.cardId===cardId)));
+}
+function statementDeclaredSpend(month,cardId='all',currency='HKD'){
+ // Replace only the matching statement/card subtotal, never the whole mixed-card total.
+ const selected=r=>(r.record_month||String(r.date||'').slice(0,7))===month&&(cardId==='all'||r.cardId===cardId)&&(r.currency||'HKD')===currency&&!r.demo;
+ const rows=[...(S.data.transactions||[]).filter(selected),...(S.data.credits||[]).filter(r=>selected(r)&&['fee','foreign_tx'].includes(r.kind))];
+ let total=rows.reduce((s,r)=>s+Math.round(num(r.amount)*100),0),used=new Set();
+ for(const st of statementImportsOfMonth(month,cardId)){
+  if(!st.fp)continue;
+  const original=st.reviewed_rows||st.rows||[],cards=[...new Set(original.filter(r=>!r.currency||r.currency==='HKD').map(r=>r.cardId).filter(Boolean))];
+  for(const check of st.checks||[]){
+   if(check.currency!==currency||check.declared_debits==null)continue;
+   const id=check.cardId||(cards.length===1?cards[0]:null);
+   // An unscoped multi-card summary cannot replace individual card totals.
+   if(!id||(cardId!=='all'&&cardId!==id)||used.has(st.fp+'|'+id))continue;
+   used.add(st.fp+'|'+id);
+   const detail=rows.filter(r=>r.fp===st.fp&&r.cardId===id).reduce((s,r)=>s+Math.round(num(r.amount)*100),0);
+   total+=num(check.declared_debits)-detail;
+  }
+ }
+ return r2(total/100);
+}
+function statementSourceNames(month,cardId='all'){return statementImportsOfMonth(month,cardId).map(st=>st.name).filter(Boolean).join('、');}
+/* Derived categories and Mox account-side labels; raw names, amounts and source IDs remain intact. */
+function migrateAccountRecords(data){
+ let changed=false;
+ const set=(r,k,v)=>{if(JSON.stringify(r[k])!==JSON.stringify(v)){r[k]=v;changed=true;}};
+ data.categories=data.categories||[];
+ if(!data.categories.some(c=>c.id==='rentsmart')){data.categories.push({id:'rentsmart',name:'RentSmart 繳租',emoji:'🏠',keywords:['RENTSMART','RENT SMART']});changed=true;}
+ for(const cat of data.categories)if(cat.id!=='other'&&(cat.keywords||[]).some(k=>/^CIRCLE\s*[- ]?\s*K$/i.test(k)))set(cat,'keywords',cat.keywords.filter(k=>!/^CIRCLE\s*[- ]?\s*K$/i.test(k)));
+ const statements=new Map((data.statementImports||[]).map(st=>[st.fp,st]));
+ for(const st of statements.values())if(st.meta?.bank==='mox'){
+  const holder=st.meta.account_holder||/^(.+?)_\d{1,2}月\d{4}_Mox_(?:Credit|Bank)_Statement/i.exec(st.name||'')?.[1]?.replace(/-/g,' ');
+  if(holder)set(st.meta,'account_holder',holder);
+  if(st.meta.statement_month)set(st.meta,'record_month',st.meta.statement_month);
+ }
+ const all=[...(data.transactions||[]),...(data.credits||[])];
+ for(const st of statements.values())all.push(...(st.rows||[]),...(st.reviewed_rows||[]));
+ for(const r of data.rewardMonths||[])all.push(...(r.source_rows||[]));
+ const changeKind=(r,kind,role,evidence)=>{if(r.kind!==kind&&!r.original_kind)set(r,'original_kind',r.kind);set(r,'kind',kind);set(r,'transaction_type',kind==='payment'?'payment':kind==='credit'?'refund':'transfer');if(role)set(r,'account_role',role);if(evidence)set(r,'classification_evidence',evidence);};
+ for(const r of all){
+  const name=r.raw_description||r.merchant||'';
+  if(/SHENZHEN\s*METRO/i.test(name)){set(r,'category','transport');set(r,'category_confidence','USER_CONFIRMED');}
+  if(/CIRCLE\s*[- ]?\s*K\b/i.test(name)){set(r,'category','other');set(r,'category_confidence','USER_CONFIRMED');}
+  if(/RENT\s*SMART/i.test(name)){set(r,'category','rentsmart');set(r,'category_confidence','USER_CONFIRMED');set(r,'platform_reward_rules','PENDING');}
+  const st=statements.get(r.fp),meta=st?.meta;
+  if(r.cardId!=='card-mox'&&meta?.bank!=='mox'&&!/mox/i.test((data.cards||[]).find(c=>c.id===r.cardId)?.name||''))continue;
+  const month=meta?.statement_month||r.statement_month||r.statement_period?.end?.slice(0,7);
+  if(month)set(r,'record_month',month);
+  const document=r.document_type||meta?.document_type;
+  if(document==='credit'&&['credit','payment'].includes(r.kind)&&r.credit_debit_indicator!=='DEBIT'&&!/REFUND|退款|退貨/i.test(name)&&StatementParser.accountNameMatches(name,meta?.account_holder))changeKind(r,'payment','credit_repayment','statement_account_holder');
+  if(document==='bank'&&['transfer','payment'].includes(r.kind)){
+   const direction=r.credit_debit_indicator==='CR'||r.amount_minor<0?'in':'out';set(r,'transfer_direction',direction);
+   if(r.account_role!=='bank_credit_payment')changeKind(r,'transfer',direction==='in'?'bank_transfer_in':'bank_transfer_out','statement_direction');
+  }
+ }
+ const unique=new Map();for(const r of all)unique.set(r.source_id||r.id||r,r);
+ const rows=[...unique.values()],date=r=>r.settlement_date||r.post_date||r.date;
+ const pairs=new Map();
+ for(const bank of rows.filter(r=>r.account_role==='bank_transfer_out'||r.account_role==='bank_credit_payment')){
+  const matches=rows.filter(c=>c.cardId===bank.cardId&&c.account_role==='credit_repayment'&&date(c)===date(bank)&&Math.round(num(c.amount)*100)===Math.round(num(bank.amount)*100));
+  if(matches.length!==1)continue;
+  const credit=matches[0],reverse=rows.filter(b=>(b.account_role==='bank_transfer_out'||b.account_role==='bank_credit_payment')&&b.cardId===credit.cardId&&date(b)===date(credit)&&Math.round(num(b.amount)*100)===Math.round(num(credit.amount)*100));
+  if(reverse.length!==1)continue;
+  const bankKey=bank.source_id||bank.id,creditKey=credit.source_id||credit.id;if(!bankKey||!creditKey)continue;
+  const id='mox-payment|'+[bankKey,creditKey].sort().join('|');pairs.set(bankKey,{id,other:creditKey,bank:true});pairs.set(creditKey,{id,other:bankKey,bank:false});
+ }
+ for(const r of all){const pair=pairs.get(r.source_id||r.id);if(!pair)continue;if(pair.bank)changeKind(r,'payment','bank_credit_payment','matching_credit_repayment_date_amount');set(r,'payment_link_id',pair.id);set(r,'related_source_ids',[pair.other]);}
+ for(const k of data.knowledge||[]){const name=k.pattern||k.merchant||k.keyword||'';if(/SHENZHEN\s*METRO/i.test(name))set(k,'category','transport');if(/CIRCLE\s*[- ]?\s*K\b/i.test(name))set(k,'category','other');if(/RENT\s*SMART/i.test(name))set(k,'category','rentsmart');}
+ return changed;
+}
+function welcomeRewardRows(month,cardId='all'){
+ return (S.data.credits||[]).filter(r=>!r.demo&&r.kind==='welcome_reward'&&(r.record_month||String(r.date||'').slice(0,7))===month&&(cardId==='all'||r.cardId===cardId));
+}
+function welcomeRewardTotal(month,cardId='all'){return r2(welcomeRewardRows(month,cardId).reduce((s,r)=>s+num(r.amount),0));}
+
+function rewardRecordsHTML(month,cardOpts){
+ const cardOk=id=>UI.recCard==='all'||id===UI.recCard;
+ const rewards=(S.data.rewardMonths||[]).filter(r=>!r.demo&&r.month===month&&cardOk(r.cardId));
+ const credits=(S.data.credits||[]).filter(r=>!r.demo&&(r.record_month||String(r.date||'').slice(0,7))===month&&cardOk(r.cardId));
+ const rewardItems=[],otherItems=[];
+ for(const r of rewards){const isMiles=r.reward_unit==='asia_miles'||r.miles>0,isPoints=['gift_points','aeon_points','waku_coin'].includes(r.reward_unit)||r.points>0;rewardItems.push({rank:isMiles?2:isPoints?1:0,date:r.month,id:r.id,html:rewardSummaryRow(r,isMiles?'里程回贈':isPoints?'積分回贈':'現金回贈')});}
+ const rank={payment:0,transfer:1,credit:2,odd_cent:3,fee:4,fee_refund:4,cashback_reversal:4,foreign_tx:5,unknown:5};
+ for(const c of credits.filter(r=>r.kind!=='foreign_tx')){const isReward=['reward_offset','welcome_reward'].includes(c.kind);(isReward?rewardItems:otherItems).push({rank:isReward?(c.kind==='reward_offset'?3:4):(rank[c.kind]??5),date:c.date||'',id:c.id,html:creditSummaryRow(c)});}
+ const sort=items=>items.sort((a,b)=>a.rank-b.rank||String(b.date).localeCompare(String(a.date))||String(a.id).localeCompare(String(b.id))).map(x=>x.html).join('');
+ const cash=rewards.filter(r=>!r.reward_unit&&!r.miles&&!r.points).reduce((s,r)=>s+num(r.amount),0),miles=rewards.filter(r=>r.reward_unit==='asia_miles'||r.miles>0).reduce((s,r)=>s+rmTotal(r),0),offsets=credits.filter(r=>r.kind==='reward_offset').reduce((s,r)=>s+num(r.amount),0),welcome=credits.filter(r=>r.kind==='welcome_reward').reduce((s,r)=>s+num(r.amount),0),total=r2(cash+miles+offsets+welcome);
+ return `${tabsHTML('rm')}${monNavHTML('rec')}<div class="fbar"><select id="f-card" data-change="rec-filter">${cardOpts}</select></div><section class="panel" data-section="rewards"><h2 class="p-title">回贈</h2><div class="kv"><span><b>現金回贈＋里程約值＋獎賞兌換＋迎新獎勵</b><br><span class="mini">積分保留原單位並另列約值，避免與兌換金額重複計算</span></span><b>≈${fmtHKD(total)}</b></div>${sort(rewardItems)||'<div class="mini">本月沒有回贈。</div>'}<button class="btn btn-primary btn-block" style="margin-top:10px" data-action="rm-add">新增／補充實際回贈</button></section><section class="panel" data-section="other-ledger"><h2 class="p-title">其他帳項 · 還款／轉賬／退款</h2><p class="mini">銀行資金進出、信用卡還款及其他帳項分開列示，不加入回贈。相連的銀行扣款及信用卡入賬是同一筆還款的兩邊記錄。</p>${sort(otherItems)||'<div class="mini">本月沒有其他帳項。</div>'}</section>`;
+}
+function rewardSummaryRow(r,label){
+ const card=cardById(r.cardId),pdf=r.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="rm" data-id="${r.id}">📄</button>`:'';
+ let main=fmtHKD(r.amount||0),sub='';
+ if(r.reward_unit||r.miles||r.points){const q=num(r.earned||r.miles||r.points),unit=unitNames[r.reward_unit]||(r.miles?'里':r.points?'積分':'獎賞');main=q.toLocaleString('en-HK')+' '+unit;sub='約等於 '+fmtHKD(rmTotal(r));}
+ return `<div class="row" data-action="rm-edit" data-id="${r.id}"><div class="row-ico">${label==='現金回贈'?'💵':label==='里程回贈'?'✈️':'🎁'}</div><div class="row-main"><div class="row-t1">${label} · ${esc(card?.name||'已刪卡片')}</div><div class="row-t2">${monthLabel(r.month)}${r.note?' · '+esc(r.note):''}${pdf}</div></div><div class="row-amt amt-good">${esc(main)}${sub?`<small class="amt-dim">${esc(sub)}</small>`:''}</div></div>`;
+}
+function creditSummaryRow(c){
+ const card=cardById(c.cardId),kd=KINDS[c.kind]||KINDS.tx,pdf=c.sid?`<button class="pdf-btn" data-action="pdf-view" data-kind="cred" data-id="${c.id}">📄</button>`:'';
+ const roleNames={bank_transfer_in:'銀行轉入（入金）',bank_transfer_out:'銀行轉出',bank_credit_payment:'信用卡還款（銀行扣款）',credit_repayment:'信用卡還款（信用卡入賬）'};
+ const label=c.kind==='welcome_reward'?'迎新獎勵':roleNames[c.account_role]||kd.n;
+ const outgoing=['fee','cashback_reversal'].includes(c.kind)||['bank_transfer_out','bank_credit_payment'].includes(c.account_role);
+ const ico=c.kind==='welcome_reward'?'🎉':c.kind==='reward_offset'?'🎟️':c.account_role==='bank_transfer_in'?'↘️':c.kind==='payment'?'🏦':c.kind==='fee'?'🧾':'↩️';
+ return `<div class="row"><div class="row-ico">${ico}</div><div class="row-main"><div class="row-t1" style="white-space:normal;overflow-wrap:anywhere">${esc(label)} · ${esc(c.merchant||'')}</div><div class="row-t2">${fmtDateFull(c.date)}${card?' · '+esc(card.name):''}${c.payment_link_id?' · 已關聯同筆還款':''}${pdf}</div></div><div class="row-amt ${outgoing?'amt-bad':'amt-good'}">${outgoing?'−':''}${parserMoney(c)}</div></div>`;
+}
+// 新版匯入用來源 ID 去重；同時把已匯入的 v2.14.0 賬項遷移到月結周期，恢復原始商戶全名。
+migrateData=function(){
+ let changed=migrateAccountRecords(S.data);
+ const statements=new Map((S.data.statementImports||[]).map(s=>[s.fp,s]));
+ for(const st of statements.values()){
+  const target=st.meta?.bank==='mox'?st.meta.statement_month:(st.meta?.period_start?.slice(0,7)||st.meta?.statement_month||st.meta?.record_month);
+  if(target&&st.meta.record_month!==target){st.meta.record_month=target;changed=true;}
+ }
+ for(const r of [...(S.data.transactions||[]),...(S.data.credits||[])]){
+  if(!r.statement_month&&!r.fp)continue;
+  const st=statements.get(r.fp),target=st?.meta?.record_month||r.statement_month||r.record_month;
+  if(target&&r.record_month!==target){r.record_month=target;changed=true;}
+  if(r.raw_description&&r.merchant!==r.raw_description){r.merchant=r.raw_description;changed=true;}
+  if(/^2\.14\.[01]/.test(r.parser_version||'')){r.parser_version='2.14.2-migrated';changed=true;}
+ }
+ /* v2.14.1 已讀到 Chill 的 Gift Points Adjustment，但因 earned 為空而沒有寫入實際回贈。 */
+ for(const st of statements.values())for(const reward of st.rewards||[]){
+  const quantity=reward.earned!=null?num(reward.earned):num(reward.adjustment);
+  if(!quantity||!reward.unit)continue;
+  const cardId=reward.cardId||st.rows?.find(r=>r.cardId)?.cardId;
+  if(!cardId)continue;
+  let rm=(S.data.rewardMonths||[]).find(r=>r.fp===st.fp&&r.reward_unit===reward.unit);
+  const value=reward.valuation_hkd!=null?num(reward.valuation_hkd):rewardUnitValue(reward.unit,quantity);
+  if(!rm){S.data.rewardMonths.push({id:uid(),fp:st.fp,cardId,month:st.meta?.statement_month||st.meta?.record_month,amount:0,reward_unit:reward.unit,earned:quantity,adjustment:reward.adjustment,valuation_hkd:value,parser_version:'2.14.2-migrated',note:'結單獎賞 · 與現金分開',sid:st.sid});changed=true;}
+  else if(rm.valuation_hkd==null){rm.valuation_hkd=value;changed=true;}
+ }
+ return changed;
+};
+txsOfMonth=function(m){return S.data.transactions.filter(t=>(t.record_month||t.date.slice(0,7))===m);};
+pageText=StatementParser.layoutText;
+buildRows=function(text){
+ const parsed=StatementParser.parse(text,{legacyHSBC:parseHSBC});
+ IMPPDF.parsed=IMPPDF.parsed||{};IMPPDF.parsed[parsed.fp]=parsed;
+ for(const r of parsed.rows){
+  r.category=guessCategory(r.raw_description||r.merchant);r.category_confidence='INFERRED';
+  // A merchant guess and ## are not bank confirmation of online eligibility.
+  r.online=guessOnline(r.raw_description||r.merchant)?true:null;
+  if(!r.cardId&&parsed.meta.bank==='hsbc')r.cardId=guessCard(text)||IMPPDF.cardId;
+ }
+ return parsed.rows.map(r=>({...r}));
+};
+const oldOpenPdf=ACTIONS['pdft-open'];
+ACTIONS['pdft-open']=()=>{IMPPDF.parsed={};IMPPDF.importWarnings=[];oldOpenPdf();};
+pdfsToTexts=async function(files){
+ const base=(document.querySelector('script[src*="pdf.min.js"]')||{}).src||'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+ pdfjsLib.GlobalWorkerOptions.workerSrc=base.replace('pdf.min.js','pdf.worker.min.js');
+ const out=[];
+ for(const f of Array.from(files)){
+  toast('正在讀取 '+f.name+'…');const arr=await f.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:arr.slice(0),isEvalSupported:false}).promise;
+  try{const pages=[];for(let n=1;n<=pdf.numPages;n++){const pg=await pdf.getPage(n);pages.push(pageText((await pg.getTextContent()).items));}out.push({text:pages.join('\n\f\n'),name:f.name,buf:arr,numPages:pdf.numPages});}finally{await pdf.destroy();}
+ }
+ return out;
+};
+ACTIONS['pdft-file']=async(d,t)=>{
+ const files=Array.from(t.files||[]);if(!files.length)return;
+ if(typeof pdfjsLib==='undefined'){toast('PDF 解析器未載入，請檢查網絡後重試','err');return;}
+ IMPPDF.rows=[];IMPPDF.stmts=[];IMPPDF.pdfs=[];IMPPDF.parsed={};IMPPDF.importWarnings=[];
+ const lib=await pdfAll();
+ for(const file of files){
+  try{
+   const [f]=await pdfsToTexts([file]);const rows=buildRows(f.text),parsed=Object.values(IMPPDF.parsed).at(-1);
+   if(!rows.length){IMPPDF.importWarnings.push(f.name+'：'+(parsed?.warnings.join('；')||'未找到交易'));continue;}
+   const fp=rows[0].fp;if(IMPPDF.stmts.some(s=>s.fp===fp)){IMPPDF.importWarnings.push(f.name+'：本次已選取相同結單，略過重複檔案');continue;}
+   const sid=lib.find(s=>s.fp===fp)?.sid||uid();rows.forEach(r=>{r.sid=sid;});
+   IMPPDF.stmts.push({fp,name:f.name,text:f.text});IMPPDF.pdfs.push({sid,name:f.name,buf:f.buf,fp});IMPPDF.rows.push(...rows);
+  }catch(e){IMPPDF.importWarnings.push(file.name+'：'+(e.message||e));}
+ }
+ openSheet(pdfImportSheet(IMPPDF.rows.length?2:1));
+};
+aiStmtMonth=()=>parsedReports()[0]?.meta.statement_month||'';
+const oldRaw=ACTIONS['pdft-raw-go'];
+ACTIONS['pdft-raw-go']=()=>{IMPPDF.pdfs=[];IMPPDF.parsed={};IMPPDF.importWarnings=[];oldRaw();};
+function parsedReports(){return (IMPPDF.stmts||[]).map(s=>({name:s.name,...IMPPDF.parsed?.[s.fp]})).filter(s=>s.meta);}
+function reportHTML(report){
+ const checks=report.checks||[],warnings=report.warnings||[];
+ return `<div class="panel" style="margin:8px 0"><b>${esc(report.name||report.meta?.statement_month||'結單')}</b>
+ <p class="mini">${checks.length?checks.map(c=>`${esc(c.currency)} ${esc(c.label||'賬面')}：${c.ok?'明細與摘要相符':'存在差額，請核對'}`).join('；'):'未完成整份結單賬面核對'}。賬面吻合不代表回贈已給足。</p>
+ ${warnings.length?'<p class="mini" style="color:var(--bad)">'+warnings.map(esc).join('<br>')+'</p>':''}
+ ${(report.rewards||[]).map(r=>`<p class="mini">${esc(unitNames[r.unit]||r.unit)}：${r.earned==null?'調整 '+num(r.adjustment):'本期賺取 '+r.earned}${r.redeemed!=null?' · 兌換 '+r.redeemed+' · 結餘 '+r.balance:''}${r.valuation_hkd!=null?' · 新賺估值 '+fmtHKD(r.valuation_hkd):''}</p>`).join('')}</div>`;
+}
+const originalImportSheet=pdfImportSheet;
+pdfImportSheet=function(step){
+ let html=originalImportSheet(step);
+ const notes=(IMPPDF.importWarnings||[]).length?'<div class="panel" style="color:var(--bad)">'+IMPPDF.importWarnings.map(esc).join('<br>')+'</div>':'';
+ if(step===1)return notes+html.replace('支援中銀（BOC）與渣打。','支援中銀、AEON、國泰、Mox 信用卡及 Mox 銀行回贈結單。');
+ return notes+html.replace('<div class="s-head">確認月結單交易</div>','<div class="s-head">確認月結單交易</div>'+parsedReports().map(reportHTML).join('')+'<p class="mini">原始日期、CR、幣種與來源另存於「結單賬本」。人民幣獨立顯示；費用、兌換和迎新不會加入消費回贈。下方分類只是候選，历史應得回贈待核實。</p>');
+};
+// Only the original AEON gross-vs-net banner is suppressed; audited parser checks appear above.
+aeonVerifyLive=()=>[];
+ACTIONS['pdft-save']=async()=>{
+ if(!IMPPDF.rows.length)return;
+ if(IMPPDF.rows.some(r=>!r.cardId||!S.data.cards.some(c=>c.id===r.cardId))){toast('有賬項未確認卡片，請先選擇正確卡片。','err');return;}
+ for(const r of IMPPDF.rows){if(!r.source_id){r.source_id='review:'+uid();r.parser_version='manual-review';r.currency=r.currency||'HKD';r.provenance='review_addition';if(!r.fp&&IMPPDF.stmts?.length===1)r.fp=IMPPDF.stmts[0].fp;}}
+ const before=JSON.parse(JSON.stringify(S.data));
+ try{
+  for(const p of IMPPDF.pdfs||[])await pdfPut(p.sid,{name:p.name,data:p.buf,fp:p.fp,importedAt:Date.now(),size:p.buf.byteLength});
+  const dd=JSON.parse(JSON.stringify(S.data));
+  dd.statementImports=dd.statementImports||[];dd.statementRewards=dd.statementRewards||[];
+  let added=0,duplicates=0;
+  const sourceIds=new Set([...dd.transactions,...dd.credits].map(x=>x.source_id).filter(Boolean));
+  for(const r of IMPPDF.rows){
+   if(r.kind==='rebate')continue;
+   if(sourceIds.has(r.source_id)){
+    // Reimport repairs parsed identity/dates without duplicating or overwriting edited amounts/names.
+    const old=[...dd.transactions,...dd.credits].find(x=>x.source_id===r.source_id);
+    if(old)for(const field of ['cardId','record_month','statement_month','statement_date','date','transaction_date','post_date'])if(r[field]!=null&&old[field]!==r[field]){old.original_parsed_metadata=old.original_parsed_metadata||{};if(!(field in old.original_parsed_metadata))old.original_parsed_metadata[field]=old[field]??null;old[field]=r[field];}
+    duplicates++;continue;
+   }
+   const copy={...r,id:uid(),note:'月結單 v2.14.0',category:r.category||'other',actualReward:null,actualDate:null,expectedReward:null,bonus:0,ruleId:null,ruleName:'歷史資格待核實'};
+   if(r.kind==='tx'&&(!r.currency||r.currency==='HKD'))dd.transactions.push(copy);
+   else dd.credits.push({...copy,kind:r.kind==='tx'?'foreign_tx':r.kind});
+   sourceIds.add(r.source_id);added++;
+  }
+  for(const report of parsedReports()){
+   const mine=IMPPDF.rows.filter(r=>r.fp===report.fp);
+   dd.statementImports=dd.statementImports.filter(x=>x.fp!==report.fp);
+   dd.statementImports.push({fp:report.fp,name:report.name,meta:report.meta,rows:report.rows.map(r=>({...r})),reviewed_rows:mine.map(r=>({...r})),rewards:report.rewards,checks:report.checks,warnings:report.warnings,sid:mine[0]?.sid||null});
+   dd.statementRewards=dd.statementRewards.filter(x=>x.fp!==report.fp);
+   dd.statementRewards.push(...report.rewards.map(r=>({...r,fp:report.fp})));
+   // Cash only. Miles/points/coins stay in the reward ledger with their original units.
+   dd.rewardMonths=dd.rewardMonths.filter(x=>x.fp!==report.fp);
+   const groups=new Map();
+   for(const r of mine.filter(r=>r.kind==='rebate'&&r.currency==='HKD')){
+    const month=r.cashback_period||(r.post_date||r.date).slice(0,7),key=r.cardId+'|'+month;
+    const g=groups.get(key)||{id:uid(),fp:report.fp,cardId:r.cardId,month,amount:0,note:r.cashback_period?'結單現金回贈':'結單現金回贈 · 消費月份未明（按入賬月顯示）',sid:r.sid,source_rows:[]};
+    g.amount=r2(g.amount+r.amount);g.source_rows.push({...r});groups.set(key,g);
+   }
+   dd.rewardMonths.push(...groups.values());
+   for(const r of report.rewards){if(isGoCard(r.cardId)&&r.unit==='gift_points'&&r.balance==null&&report.rewards.some(x=>x.cardId===r.cardId&&x.unit===r.unit&&x.balance!=null))continue;const quantity=r.earned!=null?num(r.earned):num(r.adjustment);if(!quantity)continue;
+    dd.rewardMonths.push({id:uid(),fp:report.fp,cardId:r.cardId,month:report.meta.statement_month||report.meta.record_month,amount:0,reward_unit:r.unit,earned:quantity,adjustment:r.adjustment,valuation_hkd:r.valuation_hkd!=null?r.valuation_hkd:rewardUnitValue(r.unit,quantity),parser_version:'2.14.2',note:'結單獎賞 · 與現金分開',sid:mine[0]?.sid});
+   }
+  }
+  migrateAccountRecords(dd);
+  recalculatePredictions(dd);
+  dd.meta={...dd.meta,rev:(dd.meta?.rev||0)+1,savedAt:Date.now()};
+  // A failed storage write must not report successful import or discard the review.
+  localStorage.setItem(LS_DATA,serializeLocalData(dd));S.data=dd;schedulePush();
+  closeSheet();IMPPDF.rows=[];IMPPDF.stmts=[];IMPPDF.pdfs=[];IMPPDF.parsed={};IMPPDF.chat=null;
+  UI.screen='records';render();toast('已保存 '+added+' 筆賬項，略過 '+duplicates+' 筆已匯入賬項；獎賞與原始來源可在結單賬本查看。','ok');
+ }catch(e){S.data=before;toast('未能保存帳本：'+(e.message||e)+'；確認頁仍保留，請重試。','err');}
+};
+function statementLedgerHTML(){
+ const list=(S.data.statementImports||[]).slice().sort((a,b)=>(b.meta.statement_month||'').localeCompare(a.meta.statement_month||''));
+ return `<div class="s-head">原始帳本</div><p class="s-sub">原始提取與候選分類分開。金額依原幣種顯示，CR 為入賬。國泰里數、AEON 積分和 COIN 以原單位保存，再折算港幣顯示。</p>`+
+ list.map(st=>`<details class="panel"><summary>${esc(st.name)} · ${st.rows.length} 筆</summary>${reportHTML(st)}
+ <div style="overflow-x:auto"><table style="min-width:850px;width:100%;font-size:14px;text-align:left"><thead><tr><th>交易日</th><th>記賬／結算日</th><th>原始描述</th><th>金額</th><th>類型</th><th>來源頁</th></tr></thead><tbody>${st.rows.map(r=>`<tr style="color:${r.credit_debit_indicator==='CR'?'#168253':'inherit'}"><td>${esc(r.transaction_date||'未列')}</td><td>${esc(r.post_date||'未列')}</td><td>${esc(r.raw_description||r.merchant)}</td><td style="white-space:nowrap">${parserMoney(r)} ${r.credit_debit_indicator==='CR'?'CR':''}</td><td>${esc(KINDS[r.kind]?.n||r.transaction_type)}</td><td>${r.source_page||'—'}</td></tr>`).join('')}</tbody></table></div>
+ ${st.sid?`<button class="btn btn-ghost" data-action="pdf-lib-open" data-sid="${st.sid}">查看原 PDF</button>`:''}</details>`).join('')+
+ (!list.length?'<p>尚未匯入新版結單。</p>':'')+'<button class="btn btn-ghost" data-action="sheet-close">關閉</button>';
+}
+ACTIONS['statement-ledger']=()=>openSheet(ledgerNavigationHTML('raw')+statementLedgerHTML());
+function ledgerNavigationHTML(active){return '<div class="tabs">'+[['raw','statement-ledger','原始帳項'],['mox','mox-reconciliation','Mox 對帳／規則'],['go','go-reconciliation','Go 對帳／規則']].map(([id,action,label])=>'<button class="tab '+(active===id?'active':'')+'" data-action="'+action+'">'+label+'</button>').join('')+'</div>';}
+const originalRmEdit=ACTIONS['rm-edit'];
+ACTIONS['rm-edit']=d=>S.data.rewardMonths.find(r=>r.id===d.id)?.reward_unit?ACTIONS['statement-ledger']():originalRmEdit(d);
+const originalRmTotal=rmTotal;
+rmTotal=function(rm){return rm.reward_unit?num(rm.valuation_hkd):originalRmTotal(rm);};
+function actualRewardDetailHTML(){
+ const month=UI.recMonth,cardId=UI.recCard;
+ const rows=(S.data.rewardMonths||[]).filter(r=>!r.demo&&r.month===month&&(cardId==='all'||r.cardId===cardId));
+ const manual=purchaseRowsOfMonth(month).filter(t=>(cardId==='all'||t.cardId===cardId)&&t.actualReward>0);
+ const welcome=welcomeRewardRows(month,cardId);
+ let total=rows.reduce((s,r)=>s+rmTotal(r),0)+manual.reduce((s,t)=>s+num(t.actualReward),0)+welcomeRewardTotal(month,cardId);
+ const line=r=>{const card=cardById(r.cardId),value=rmTotal(r);let quantity='現金回贈 '+fmtHKD(r.amount||0);
+  if(r.reward_unit==='gift_points')quantity=num(r.earned).toLocaleString('en-HK')+' Gift Points（250分≈HK$1；每月8、18、28日兌換可按220分≈HK$1）';
+  if(r.reward_unit==='aeon_points')quantity=num(r.earned).toLocaleString('en-HK')+' Purple 積分（25,000分≈HK$100消費券）';
+  if(r.reward_unit==='waku_coin')quantity=num(r.earned).toLocaleString('en-HK')+' WAKU COIN（1 COIN=HK$1）';
+  if(r.reward_unit==='asia_miles')quantity=num(r.earned).toLocaleString('en-HK')+' 亞洲萬里通里數';
+  return `<div class="kv"><div><b>${esc(card?.name||'已刪卡片')}</b><br><span class="mini">${esc(quantity)}${r.note?' · '+esc(r.note):''}</span></div><b>≈${fmtHKD(value)}</b></div>`;};
+ return `<div class="s-head">${monthLabel(month)} · 實際回贈明細</div><p class="s-sub">月結單中的現金、積分、WAKU COIN 及里數分開保存；外面的數字是各項約值合計。</p>${rows.map(line).join('')}${welcome.map(creditSummaryRow).join('')}${manual.map(t=>`<div class="kv"><span>${esc(t.merchant)} · 逐筆實際回贈</span><b>${fmtHKD(t.actualReward)}</b></div>`).join('')||''}${rows.length||manual.length||welcome.length?'':'<div class="empty">這個月份未有實際回贈記錄</div>'}<div class="divider"></div><div class="kv"><b>折合港幣合計</b><b>≈${fmtHKD(total)}</b></div><button class="btn btn-primary btn-block" data-action="rm-add">新增／補充實際回贈</button>`;
+}
+ACTIONS['actual-detail']=()=>openSheet(actualRewardDetailHTML());
+const originalSettingsHTML=settingsHTML;
+settingsHTML=function(){return '<section class="panel"><b>v2.16.1 · 分類與帳項修正</b><p class="mini">依「Chill卡回贈分析」v2計算每筆理論現金及基本積分；門檻與HK$150上限按交易日曆月計算。已匯入紀錄會自動補算。</p><a href="../v2.16.0/">開啟 v2.16.0</a></section>'+originalSettingsHTML();};
+
+function purchaseRowsOfMonth(month){const rows=[...txsOfMonth(month),...(S.data.credits||[]).filter(t=>t.kind==='foreign_tx'&&(t.record_month||String(t.date||'').slice(0,7))===month)];const seen=new Set();return rows.filter(t=>{const key=t.source_id||t.id;if(!key)return true;if(seen.has(key))return false;seen.add(key);return true;});}
+
+// Rebuildable reward caches need not consume browser storage; original evidence/settings remain intact.
+function serializeLocalData(data){
+ const caches=new Set(['prediction','chillPredictionMonths','chillReconciliation','moxPredictionMonths','moxReconciliation','moxReconciliationCandidates','goPredictionMonths','goObservedEvidence']);
+ const derived=new Set(['expectedReward','expected_cashback','scenario_cashback','expected_points','expected_points_hkd','confidence','evidence_count','reconciliation_status','observed_cashback_total','allocated_actual_cashback','bonus','ruleId','ruleName','chill_merchant','online_status','cashback_category']);
+ return JSON.stringify(data,function(key,value){if(caches.has(key))return undefined;if(this.prediction&&['go','mox'].includes(this.prediction.engine)||this.prediction?.version&&this.prediction.chill_merchant!==undefined){if(derived.has(key))return undefined;}return value;});
+}
